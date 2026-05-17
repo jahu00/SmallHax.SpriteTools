@@ -101,7 +101,6 @@ class BgRemovalPanel:
             at_frame, from_=0, to=442, width=5, textvariable=self.alpha_thresh_var
         )
         at_spin.pack(side=tk.LEFT, padx=4)
-        at_spin.bind("<Return>", lambda e: self._schedule_preview())
 
         # ─── Global Threshold ───────────────────────────────────────────
         sep_thresh = ttk.Separator(panel, orient=tk.HORIZONTAL)
@@ -115,7 +114,6 @@ class BgRemovalPanel:
             gt_frame, from_=0, to=442, width=5, textvariable=self.global_thresh_var
         )
         gt_spin.pack(side=tk.LEFT, padx=4)
-        gt_spin.bind("<Return>", lambda e: self._on_global_thresh_changed())
 
         self.use_global_thresh_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
@@ -128,12 +126,11 @@ class BgRemovalPanel:
         gf_frame = tk.Frame(panel)
         gf_frame.pack(fill=tk.X, padx=8, pady=4)
         tk.Label(gf_frame, text="Global Feathering:").pack(side=tk.LEFT)
-        self.global_feather_var = tk.IntVar(value=0)
+        self.global_feather_var = tk.IntVar(value=2)
         gf_spin = tk.Spinbox(
             gf_frame, from_=0, to=50, width=5, textvariable=self.global_feather_var
         )
         gf_spin.pack(side=tk.LEFT, padx=4)
-        gf_spin.bind("<Return>", lambda e: self._on_global_feather_changed())
 
         self.use_global_feather_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
@@ -358,12 +355,11 @@ class BgRemovalPanel:
             thresh_state = tk.DISABLED if use_global_thresh else tk.NORMAL
             t_spin = tk.Spinbox(
                 t_frame, from_=0, to=442, width=4, textvariable=t_var,
-                command=lambda idx=i, v=t_var: self._update_threshold(idx, v),
                 state=thresh_state
             )
             t_spin.pack(side=tk.LEFT, padx=2)
             if not use_global_thresh:
-                t_spin.bind("<Return>", lambda e, idx=i, v=t_var: self._update_threshold(idx, v))
+                t_var.trace_add("write", lambda *_, idx=i, v=t_var: self._update_threshold(idx, v))
 
             # Feathering
             f_frame = tk.Frame(frame)
@@ -373,14 +369,11 @@ class BgRemovalPanel:
             feather_state = tk.DISABLED if use_global_feather else tk.NORMAL
             f_spin = tk.Spinbox(
                 f_frame, from_=0, to=50, width=4, textvariable=f_var,
-                command=lambda idx=i, v=f_var: self._update_feathering(idx, v),
                 state=feather_state
             )
             f_spin.pack(side=tk.LEFT, padx=2)
             if not use_global_feather:
-                f_spin.bind(
-                    "<Return>", lambda e, idx=i, v=f_var: self._update_feathering(idx, v)
-                )
+                f_var.trace_add("write", lambda *_, idx=i, v=f_var: self._update_feathering(idx, v))
 
     def _remove_point(self, idx):
         if 0 <= idx < len(self.points):
@@ -393,18 +386,22 @@ class BgRemovalPanel:
     def _update_threshold(self, idx, var):
         if 0 <= idx < len(self.points):
             try:
-                self.points[idx]["threshold"] = var.get()
-            except tk.TclError:
+                val = var.get()
+            except (tk.TclError, ValueError):
                 return
-            self._schedule_preview()
+            if self.points[idx]["threshold"] != val:
+                self.points[idx]["threshold"] = val
+                self._schedule_preview()
 
     def _update_feathering(self, idx, var):
         if 0 <= idx < len(self.points):
             try:
-                self.points[idx]["feathering"] = var.get()
-            except tk.TclError:
+                val = var.get()
+            except (tk.TclError, ValueError):
                 return
-            self._schedule_preview()
+            if self.points[idx]["feathering"] != val:
+                self.points[idx]["feathering"] = val
+                self._schedule_preview()
 
     def _clear_points(self):
         self._cancel_processing()

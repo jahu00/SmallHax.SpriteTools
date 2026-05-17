@@ -409,3 +409,183 @@ def process_background_removal(image, points, alpha_threshold, color_space,
         result[partial_indices[0], partial_indices[1], 3] = alpha
 
     return Image.fromarray(result, "RGBA")
+
+# ─── RGB to LAB Conversion ──────────────────────────────────────────────────
+
+def rgb_array_to_lab(rgb):
+    """
+    Convert RGB array (*, 3) uint8 to CIELAB array (*, 3) float64.
+    Uses D65 illuminant.
+    """
+    # RGB to linear sRGB
+    rgb_f = rgb.astype(np.float64) / 255.0
+    # Inverse sRGB companding
+    linear = np.where(rgb_f <= 0.04045, rgb_f / 12.92,
+                      ((rgb_f + 0.055) / 1.055) ** 2.4)
+
+    # Linear RGB to XYZ (D65)
+    # Matrix from sRGB spec
+    r, g, b = linear[..., 0], linear[..., 1], linear[..., 2]
+    x = 0.4124564 * r + 0.3575761 * g + 0.1804375 * b
+    y = 0.2126729 * r + 0.7151522 * g + 0.0721750 * b
+    z = 0.0193339 * r + 0.1191920 * g + 0.9503041 * b
+
+    # XYZ to LAB (D65 reference white)
+    xn, yn, zn = 0.95047, 1.00000, 1.08883
+    x_r, y_r, z_r = x / xn, y / yn, z / zn
+
+    epsilon = 0.008856
+    kappa = 903.3
+
+    fx = np.where(x_r > epsilon, np.cbrt(x_r), (kappa * x_r + 16) / 116)
+    fy = np.where(y_r > epsilon, np.cbrt(y_r), (kappa * y_r + 16) / 116)
+    fz = np.where(z_r > epsilon, np.cbrt(z_r), (kappa * z_r + 16) / 116)
+
+    L = 116 * fy - 16
+    a = 500 * (fx - fy)
+    b_lab = 200 * (fy - fz)
+
+    return np.stack([L, a, b_lab], axis=-1)
+
+
+# ─── Color Correction Mode ──────────────────────────────────────────────────
+
+def compute_distance(pixels, seed_color, metric="RGB"):
+    """
+    Compute color distance between pixels and a seed color.
+    Args:
+        pixels: (N, 3) float64 array of RGB values (0-255 scale)
+        seed_color: (3,) float64 array of RGB seed color (0-255 scale)
+        metric: 'RGB' or 'LAB'
+    Returns:
+        (N,) float64 array of distances
+    """
+    if metric == "LAB":
+        # Convert both to LAB
+        pixels_u8 = np.clip(pixels, 0, 255).astype(np.uint8).reshape(-1, 1, 3)
+        seed_u8 = np.clip(seed_color, 0, 255).astype(np.uint8).reshape(1, 1, 3)
+        pixels_lab = rgb_array_to_lab(pixels_u8)[:, 0, :]  # (N, 3)
+        seed_lab = rgb_array_to_lab(seed_u8)[0, 0, :]  # (3,)
+        diffs = pixels_lab - seed_lab
+    else:
+        # RGB Euclidean
+        diffs = pixels - seed_color
+
+    return np.sqrt(np.sum(diffs ** 2, axis=1))
+
+
+def process_color_correction(image, points, alpha_threshold, distance_metric="RGB",
+                             cancel_event=None):
+    """
+    Color correction background removal mode.
+    Processes each mask independently. For pixels outside alpha_threshold,
+    uses sqrt(distance) as alpha and subtracts background color contribution.
+
+    Args:
+        image: PIL Image
+        points: list of dicts {x, y, threshold, feathering}
+        alpha_threshold: distance below which pixels are fully transparent
+        distance_metric: 'RGB' or 'LAB'
+        cancel_event: threading.Event for cancellation
+    Returns:
+        RGBA PIL Image, or None if cancelled.
+    """
+    if not points:
+        return image.convert("RGBA")
+
+    rgb_image = image.convert("RGB")
+    rgb_array = np.array(rgb_image).astype(np.float64)  # (H, W, 3) float64
+    height, width = rgb_array.shape[:2]
+
+    # Start with fully opaque result
+    result_rgb = rgb_array.copy()
+    result_alpha = np.full((height, width), 255.0, dtype=np.float64)
+
+    # Process each point's mask independently
+    for pt in points:
+        if cancel_event and cancel_event.is_set():
+            return None
+
+        pt_mask = create_magic_wand_mask(
+            rgb_array.astype(np.uint8), (pt["x"], pt["y"]), pt["threshold"], cancel_event
+        )
+        if pt_mask is None:
+            return None
+
+        pt_mask = dilate_mask(pt_mask, pt["feathering"])
+
+        if cancel_event and cancel_event.is_set():
+            return None
+
+        # Get seed color for this point
+        px, py = pt["x"], pt["y"]
+        if px < 0 or px >= width or py < 0 or py >= height:
+            continue
+        seed_color = rgb_array[py, px]  # (3,) float64
+
+        # Get pixels in this mask
+        mask_indices = np.where(pt_mask)
+        if mask_indices[0].size == 0:
+            continue
+
+        masked_pixels = rgb_array[mask_indices[0], mask_indices[1]]  # (M, 3)
+
+        # Compute distances
+        distances = compute_distance(masked_pixels, seed_color, distance_metric)
+
+        # Fully transparent: distance <= alpha_threshold
+        fully_trans = distances <= alpha_threshold
+
+        # Partial: distance > alpha_threshold
+        partial = ~fully_trans
+
+        # ─── Fully transparent pixels ───────────────────────────────────
+        if np.any(fully_trans):
+            ft_rows = mask_indices[0][fully_trans]
+            ft_cols = mask_indices[1][fully_trans]
+            result_alpha[ft_rows, ft_cols] = 0
+            result_rgb[ft_rows, ft_cols] = 0
+
+        # ─── Partial pixels: color correction ───────────────────────────
+        if np.any(partial):
+            p_rows = mask_indices[0][partial]
+            p_cols = mask_indices[1][partial]
+            p_pixels = masked_pixels[partial]  # (P, 3)
+            p_distances = distances[partial]  # (P,)
+
+            # Max possible distance for normalization
+            # RGB max = sqrt(255^2 * 3) ≈ 441.67
+            # LAB max ≈ ~375 but varies; use actual max distance or fixed scale
+            max_dist = 441.67 if distance_metric == "RGB" else 375.0
+
+            # Alpha = sqrt(distance / max_dist) — normalized then sqrt for gentler falloff
+            normalized_dist = np.clip(p_distances / max_dist, 0, 1)
+            alpha = np.sqrt(normalized_dist) * 255.0
+
+            # Color correction: subtract background contribution
+            # corrected = (pixel - bg * (1 - alpha/255)) / (alpha/255)
+            # Simplified: corrected = (pixel - bg + bg * alpha_norm) / alpha_norm
+            alpha_norm = alpha / 255.0
+            alpha_norm_safe = np.maximum(alpha_norm, 0.01)  # Avoid division by zero
+
+            # For each channel: corrected = (pixel - seed * (1 - alpha_norm)) / alpha_norm
+            corrected = np.zeros_like(p_pixels)
+            for c in range(3):
+                corrected[:, c] = (p_pixels[:, c] - seed_color[c] * (1 - alpha_norm)) / alpha_norm_safe
+
+            corrected = np.clip(corrected, 0, 255)
+
+            result_rgb[p_rows, p_cols] = corrected
+            result_alpha[p_rows, p_cols] = np.minimum(
+                result_alpha[p_rows, p_cols], alpha
+            )
+
+    if cancel_event and cancel_event.is_set():
+        return None
+
+    # Assemble final RGBA
+    result = np.zeros((height, width, 4), dtype=np.uint8)
+    result[..., :3] = np.clip(result_rgb, 0, 255).astype(np.uint8)
+    result[..., 3] = np.clip(result_alpha, 0, 255).astype(np.uint8)
+
+    return Image.fromarray(result, "RGBA")

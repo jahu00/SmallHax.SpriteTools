@@ -5,7 +5,7 @@ from tkinter import ttk
 import threading
 import copy
 
-from bg_removal import process_background_removal
+from bg_removal import process_background_removal, process_color_correction
 
 # Predefined background colors for preview
 BG_COLORS = {
@@ -26,14 +26,6 @@ class BgRemovalPanel:
 
     def __init__(self, parent_frame, on_preview_ready, on_apply, on_cancel,
                  on_status_changed=None):
-        """
-        Args:
-            parent_frame: The tk.Frame to build the panel inside.
-            on_preview_ready: Callback(image) called on main thread when preview is done.
-            on_apply: Callback(image) called when user clicks Apply.
-            on_cancel: Callback() called when user clicks Cancel.
-            on_status_changed: Callback(text) called when processing status changes.
-        """
         self.parent_frame = parent_frame
         self._on_preview_ready = on_preview_ready
         self._on_apply = on_apply
@@ -44,6 +36,7 @@ class BgRemovalPanel:
         self.points = []
         self._source_image = None
         self._preview_result = None
+        self._point_colors = []  # RGB tuples for color swatches
 
         # Threading
         self._cancel_event = threading.Event()
@@ -51,7 +44,7 @@ class BgRemovalPanel:
         self._debounce_id = None
 
         self._build_ui()
-        # Register traces after UI is fully built to avoid premature callbacks
+        # Register traces after UI is fully built
         self.alpha_thresh_var.trace_add("write", lambda *_: self._schedule_preview())
         self.global_thresh_var.trace_add("write", lambda *_: self._on_global_thresh_changed())
         self.global_feather_var.trace_add("write", lambda *_: self._on_global_feather_changed())
@@ -64,19 +57,42 @@ class BgRemovalPanel:
             pady=(8, 4), padx=8, anchor=tk.W
         )
 
-        # Color space selector
+        # ─── Mode Selection ─────────────────────────────────────────────
+        # Color correction mode checkbox
+        self.color_correction_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            panel, text="Color correction mode",
+            variable=self.color_correction_var,
+            command=self._on_mode_changed
+        ).pack(padx=8, anchor=tk.W)
+
+        # Distance metric (for color correction mode)
+        dm_frame = tk.Frame(panel)
+        dm_frame.pack(fill=tk.X, padx=8, pady=2)
+        tk.Label(dm_frame, text="Distance Metric:").pack(side=tk.LEFT)
+        self.distance_metric_var = tk.StringVar(value="RGB")
+        self.distance_metric_dropdown = ttk.Combobox(
+            dm_frame, textvariable=self.distance_metric_var,
+            values=["RGB", "LAB"], state="readonly", width=5
+        )
+        self.distance_metric_dropdown.pack(side=tk.LEFT, padx=4)
+        self.distance_metric_dropdown.bind(
+            "<<ComboboxSelected>>", lambda e: self._schedule_preview()
+        )
+
+        # Color space selector (for standard mode)
         cs_frame = tk.Frame(panel)
         cs_frame.pack(fill=tk.X, padx=8, pady=4)
         tk.Label(cs_frame, text="Color Space:").pack(side=tk.LEFT)
         self.cs_var = tk.StringVar(value="HSL")
-        cs_dropdown = ttk.Combobox(
+        self.cs_dropdown = ttk.Combobox(
             cs_frame, textvariable=self.cs_var, values=["HSL", "HSV", "HSI"],
             state="readonly", width=6
         )
-        cs_dropdown.pack(side=tk.LEFT, padx=4)
-        cs_dropdown.bind("<<ComboboxSelected>>", lambda e: self._schedule_preview())
+        self.cs_dropdown.pack(side=tk.LEFT, padx=4)
+        self.cs_dropdown.bind("<<ComboboxSelected>>", lambda e: self._schedule_preview())
 
-        # Alpha threshold (decides full-transparent vs partial)
+        # Alpha threshold
         at_frame = tk.Frame(panel)
         at_frame.pack(fill=tk.X, padx=8, pady=4)
         tk.Label(at_frame, text="Alpha Threshold:").pack(side=tk.LEFT)
@@ -87,7 +103,7 @@ class BgRemovalPanel:
         at_spin.pack(side=tk.LEFT, padx=4)
         at_spin.bind("<Return>", lambda e: self._schedule_preview())
 
-        # ─── Global Threshold (default/override for per-point threshold) ─
+        # ─── Global Threshold ───────────────────────────────────────────
         sep_thresh = ttk.Separator(panel, orient=tk.HORIZONTAL)
         sep_thresh.pack(fill=tk.X, padx=8, pady=(8, 4))
 
@@ -101,7 +117,6 @@ class BgRemovalPanel:
         gt_spin.pack(side=tk.LEFT, padx=4)
         gt_spin.bind("<Return>", lambda e: self._on_global_thresh_changed())
 
-        # Use global threshold checkbox
         self.use_global_thresh_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
             panel, text="Use global threshold for all points",
@@ -120,7 +135,6 @@ class BgRemovalPanel:
         gf_spin.pack(side=tk.LEFT, padx=4)
         gf_spin.bind("<Return>", lambda e: self._on_global_feather_changed())
 
-        # Use global feathering checkbox
         self.use_global_feather_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
             panel, text="Use global feathering for all points",
@@ -132,7 +146,6 @@ class BgRemovalPanel:
         sep = ttk.Separator(panel, orient=tk.HORIZONTAL)
         sep.pack(fill=tk.X, padx=8, pady=(8, 4))
 
-        # Solid background checkbox
         self.use_solid_bg_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
             panel, text="Solid preview background",
@@ -140,7 +153,6 @@ class BgRemovalPanel:
             command=self._on_bg_option_changed
         ).pack(padx=8, anchor=tk.W)
 
-        # Background color dropdown
         bg_color_frame = tk.Frame(panel)
         bg_color_frame.pack(fill=tk.X, padx=8, pady=2)
         tk.Label(bg_color_frame, text="Color:").pack(side=tk.LEFT)
@@ -164,7 +176,6 @@ class BgRemovalPanel:
             padx=8, anchor=tk.W
         )
 
-        # Scrollable point list
         list_frame = tk.Frame(panel)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
 
@@ -200,10 +211,12 @@ class BgRemovalPanel:
             side=tk.RIGHT, padx=2
         )
 
+        # Initial UI state
+        self._update_mode_ui()
+
     # ─── Public Interface ───────────────────────────────────────────────
 
     def set_source_image(self, image):
-        """Set the source image for processing."""
         self._source_image = image
 
     def add_point(self, img_x, img_y):
@@ -217,15 +230,25 @@ class BgRemovalPanel:
         except tk.TclError:
             feathering = 0
 
+        # Get the pixel color for the swatch
+        color = (128, 128, 128)  # fallback
+        if self._source_image is not None:
+            import numpy as np
+            arr = np.array(self._source_image.convert("RGB"))
+            h, w = arr.shape[:2]
+            if 0 <= img_x < w and 0 <= img_y < h:
+                color = tuple(arr[img_y, img_x])
+
         point = {"x": img_x, "y": img_y, "threshold": threshold, "feathering": feathering}
         self.points.append(point)
+        self._point_colors.append(color)
         self._refresh_points_list()
         self._schedule_preview()
 
     def reset(self):
-        """Reset panel state."""
         self._cancel_processing()
         self.points = []
+        self._point_colors = []
         self._preview_result = None
         self.use_solid_bg_var.set(False)
         self.bg_color_dropdown.config(state=tk.DISABLED)
@@ -233,54 +256,64 @@ class BgRemovalPanel:
         self._update_status("")
 
     def get_preview_bg_color(self):
-        """Return the solid background color tuple, or None for checkerboard."""
         if self.use_solid_bg_var.get():
             color_name = self.bg_color_var.get()
             return BG_COLORS.get(color_name, (255, 255, 255))
         return None
 
     def _update_status(self, text):
-        """Update both the panel status label and the main window status bar."""
         self.status_label.config(text=text)
         if self._on_status_changed:
             status = text if text else "Ready"
             self._on_status_changed(status)
 
+    # ─── Mode UI ────────────────────────────────────────────────────────
+
+    def _on_mode_changed(self):
+        """Called when color correction checkbox is toggled."""
+        self._update_mode_ui()
+        self._schedule_preview()
+
+    def _update_mode_ui(self):
+        """Enable/disable widgets based on current mode."""
+        is_cc = self.color_correction_var.get()
+        # Color space is only for standard mode
+        if is_cc:
+            self.cs_dropdown.config(state=tk.DISABLED)
+            self.distance_metric_dropdown.config(state="readonly")
+        else:
+            self.cs_dropdown.config(state="readonly")
+            self.distance_metric_dropdown.config(state=tk.DISABLED)
+
     # ─── Background Option Callbacks ────────────────────────────────────
 
     def _on_bg_option_changed(self):
-        """Called when solid bg checkbox or color changes."""
         if self.use_solid_bg_var.get():
             self.bg_color_dropdown.config(state="readonly")
         else:
             self.bg_color_dropdown.config(state=tk.DISABLED)
-        # Re-render preview with new background (no reprocessing needed)
         if self._preview_result is not None:
             self._on_preview_ready(self._preview_result)
 
     # ─── Global Threshold Callbacks ─────────────────────────────────────
 
     def _on_use_global_thresh_toggled(self):
-        """Called when 'use global threshold' checkbox is toggled."""
         self._refresh_points_list()
         if self.use_global_thresh_var.get():
             self._schedule_preview()
 
     def _on_global_thresh_changed(self):
-        """Called when global threshold value changes."""
         if self.use_global_thresh_var.get():
             self._schedule_preview()
 
     # ─── Global Feathering Callbacks ────────────────────────────────────
 
     def _on_use_global_feather_toggled(self):
-        """Called when 'use global feathering' checkbox is toggled."""
         self._refresh_points_list()
         if self.use_global_feather_var.get():
             self._schedule_preview()
 
     def _on_global_feather_changed(self):
-        """Called when global feathering value changes."""
         if self.use_global_feather_var.get():
             self._schedule_preview()
 
@@ -297,9 +330,18 @@ class BgRemovalPanel:
             frame = tk.Frame(self.points_inner_frame, bd=1, relief=tk.GROOVE)
             frame.pack(fill=tk.X, pady=2)
 
-            # Header
+            # Header with color swatch
             header = tk.Frame(frame)
             header.pack(fill=tk.X, padx=4, pady=2)
+
+            # Color swatch
+            color = self._point_colors[i] if i < len(self._point_colors) else (128, 128, 128)
+            hex_color = f"#{color[0]:02x}{color[1]:02x}{color[2]:02x}"
+            swatch = tk.Canvas(header, width=14, height=14, highlightthickness=1,
+                               highlightbackground="black")
+            swatch.pack(side=tk.LEFT, padx=(0, 4))
+            swatch.create_rectangle(0, 0, 14, 14, fill=hex_color, outline="")
+
             tk.Label(header, text=f"#{i+1} ({pt['x']}, {pt['y']})", font=("", 9)).pack(
                 side=tk.LEFT
             )
@@ -343,6 +385,8 @@ class BgRemovalPanel:
     def _remove_point(self, idx):
         if 0 <= idx < len(self.points):
             self.points.pop(idx)
+            if idx < len(self._point_colors):
+                self._point_colors.pop(idx)
             self._refresh_points_list()
             self._schedule_preview()
 
@@ -365,6 +409,7 @@ class BgRemovalPanel:
     def _clear_points(self):
         self._cancel_processing()
         self.points = []
+        self._point_colors = []
         self._preview_result = None
         self._refresh_points_list()
         self._update_status("")
@@ -373,12 +418,10 @@ class BgRemovalPanel:
     # ─── Debounced Preview ──────────────────────────────────────────────
 
     def _schedule_preview(self):
-        """Debounce: cancel previous timer, start a new one."""
         if self._debounce_id is not None:
             self.parent_frame.after_cancel(self._debounce_id)
             self._debounce_id = None
 
-        # Cancel any running processing
         self._cancel_processing()
 
         if not self.points or self._source_image is None:
@@ -391,26 +434,24 @@ class BgRemovalPanel:
         self._debounce_id = self.parent_frame.after(self.DEBOUNCE_MS, self._start_processing)
 
     def _cancel_processing(self):
-        """Signal the worker thread to stop."""
         self._cancel_event.set()
 
     def _start_processing(self):
-        """Start background processing in a thread."""
         self._debounce_id = None
-
-        # Fresh cancel event for this run
         self._cancel_event = threading.Event()
 
         try:
             alpha_threshold = self.alpha_thresh_var.get()
         except tk.TclError:
             alpha_threshold = 30
-        color_space = self.cs_var.get()
 
-        # Deep copy points so the thread has a stable snapshot
+        color_space = self.cs_var.get()
+        is_color_correction = self.color_correction_var.get()
+        distance_metric = self.distance_metric_var.get()
+
         points_snapshot = copy.deepcopy(self.points)
 
-        # If using global threshold, override all point threshold values
+        # Apply global overrides
         if self.use_global_thresh_var.get():
             try:
                 global_thresh = self.global_thresh_var.get()
@@ -419,7 +460,6 @@ class BgRemovalPanel:
             for pt in points_snapshot:
                 pt["threshold"] = global_thresh
 
-        # If using global feathering, override all point feathering values
         if self.use_global_feather_var.get():
             try:
                 global_feather = self.global_feather_var.get()
@@ -434,10 +474,17 @@ class BgRemovalPanel:
         self._update_status("Processing...")
 
         def worker():
-            result = process_background_removal(
-                source_image, points_snapshot, alpha_threshold, color_space,
-                cancel_event=cancel_event
-            )
+            if is_color_correction:
+                result = process_color_correction(
+                    source_image, points_snapshot, alpha_threshold,
+                    distance_metric=distance_metric,
+                    cancel_event=cancel_event
+                )
+            else:
+                result = process_background_removal(
+                    source_image, points_snapshot, alpha_threshold, color_space,
+                    cancel_event=cancel_event
+                )
             if not cancel_event.is_set() and result is not None:
                 self.parent_frame.after(0, lambda: self._on_worker_done(result))
 
@@ -445,7 +492,6 @@ class BgRemovalPanel:
         self._worker_thread.start()
 
     def _on_worker_done(self, result):
-        """Called on main thread when worker finishes successfully."""
         self._preview_result = result
         self._update_status("Preview ready")
         self._on_preview_ready(result)
@@ -453,14 +499,12 @@ class BgRemovalPanel:
     # ─── Apply / Cancel ─────────────────────────────────────────────────
 
     def _apply(self):
-        """Apply the current preview."""
         self._cancel_processing()
         if self._preview_result is not None:
             self._on_apply(self._preview_result)
         self._preview_result = None
 
     def _cancel(self):
-        """Cancel and discard."""
         self._cancel_processing()
         self._preview_result = None
         self._on_cancel()

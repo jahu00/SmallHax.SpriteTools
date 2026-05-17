@@ -130,12 +130,12 @@ def dilate_mask(mask, amount):
     return result
 
 
-def process_background_removal(image, points, global_threshold, color_space,
+def process_background_removal(image, points, alpha_threshold, color_space,
                                cancel_event=None):
     """
     Process background removal.
     - points: list of dicts {x, y, threshold, feathering}
-    - global_threshold: overall threshold for deciding full-transparent vs partial
+    - alpha_threshold: threshold for deciding full-transparent vs partial transparency
     - color_space: 'HSL', 'HSV', or 'HSI'
     - cancel_event: threading.Event, if set the processing aborts and returns None
     Returns RGBA Image with background removed, or None if cancelled.
@@ -205,7 +205,7 @@ def process_background_removal(image, points, global_threshold, color_space,
                     dist = color_distance((r, g, b), seed_color)
                     min_dist = min(min_dist, dist)
 
-            if min_dist <= global_threshold:
+            if min_dist <= alpha_threshold:
                 result_pixels[x, y] = (0, 0, 0, 0)
             else:
                 h, s, lightness = to_cs(r, g, b)

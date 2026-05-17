@@ -52,7 +52,8 @@ class BgRemovalPanel:
 
         self._build_ui()
         # Register traces after UI is fully built to avoid premature callbacks
-        self.global_thresh_var.trace_add("write", lambda *_: self._schedule_preview())
+        self.alpha_thresh_var.trace_add("write", lambda *_: self._schedule_preview())
+        self.global_thresh_var.trace_add("write", lambda *_: self._on_global_thresh_changed())
         self.global_feather_var.trace_add("write", lambda *_: self._on_global_feather_changed())
 
     def _build_ui(self):
@@ -75,7 +76,21 @@ class BgRemovalPanel:
         cs_dropdown.pack(side=tk.LEFT, padx=4)
         cs_dropdown.bind("<<ComboboxSelected>>", lambda e: self._schedule_preview())
 
-        # Global threshold
+        # Alpha threshold (decides full-transparent vs partial)
+        at_frame = tk.Frame(panel)
+        at_frame.pack(fill=tk.X, padx=8, pady=4)
+        tk.Label(at_frame, text="Alpha Threshold:").pack(side=tk.LEFT)
+        self.alpha_thresh_var = tk.IntVar(value=30)
+        at_spin = tk.Spinbox(
+            at_frame, from_=0, to=442, width=5, textvariable=self.alpha_thresh_var
+        )
+        at_spin.pack(side=tk.LEFT, padx=4)
+        at_spin.bind("<Return>", lambda e: self._schedule_preview())
+
+        # ─── Global Threshold (default/override for per-point threshold) ─
+        sep_thresh = ttk.Separator(panel, orient=tk.HORIZONTAL)
+        sep_thresh.pack(fill=tk.X, padx=8, pady=(8, 4))
+
         gt_frame = tk.Frame(panel)
         gt_frame.pack(fill=tk.X, padx=8, pady=4)
         tk.Label(gt_frame, text="Global Threshold:").pack(side=tk.LEFT)
@@ -84,9 +99,17 @@ class BgRemovalPanel:
             gt_frame, from_=0, to=442, width=5, textvariable=self.global_thresh_var
         )
         gt_spin.pack(side=tk.LEFT, padx=4)
-        gt_spin.bind("<Return>", lambda e: self._schedule_preview())
+        gt_spin.bind("<Return>", lambda e: self._on_global_thresh_changed())
 
-        # Global feathering
+        # Use global threshold checkbox
+        self.use_global_thresh_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            panel, text="Use global threshold for all points",
+            variable=self.use_global_thresh_var,
+            command=self._on_use_global_thresh_toggled
+        ).pack(padx=8, anchor=tk.W)
+
+        # ─── Global Feathering ──────────────────────────────────────────
         gf_frame = tk.Frame(panel)
         gf_frame.pack(fill=tk.X, padx=8, pady=4)
         tk.Label(gf_frame, text="Global Feathering:").pack(side=tk.LEFT)
@@ -235,6 +258,19 @@ class BgRemovalPanel:
         if self._preview_result is not None:
             self._on_preview_ready(self._preview_result)
 
+    # ─── Global Threshold Callbacks ─────────────────────────────────────
+
+    def _on_use_global_thresh_toggled(self):
+        """Called when 'use global threshold' checkbox is toggled."""
+        self._refresh_points_list()
+        if self.use_global_thresh_var.get():
+            self._schedule_preview()
+
+    def _on_global_thresh_changed(self):
+        """Called when global threshold value changes."""
+        if self.use_global_thresh_var.get():
+            self._schedule_preview()
+
     # ─── Global Feathering Callbacks ────────────────────────────────────
 
     def _on_use_global_feather_toggled(self):
@@ -254,6 +290,7 @@ class BgRemovalPanel:
         for widget in self.points_inner_frame.winfo_children():
             widget.destroy()
 
+        use_global_thresh = self.use_global_thresh_var.get()
         use_global_feather = self.use_global_feather_var.get()
 
         for i, pt in enumerate(self.points):
@@ -276,12 +313,15 @@ class BgRemovalPanel:
             t_frame.pack(fill=tk.X, padx=4)
             tk.Label(t_frame, text="Thresh:", font=("", 8)).pack(side=tk.LEFT)
             t_var = tk.IntVar(value=pt["threshold"])
+            thresh_state = tk.DISABLED if use_global_thresh else tk.NORMAL
             t_spin = tk.Spinbox(
                 t_frame, from_=0, to=442, width=4, textvariable=t_var,
-                command=lambda idx=i, v=t_var: self._update_threshold(idx, v)
+                command=lambda idx=i, v=t_var: self._update_threshold(idx, v),
+                state=thresh_state
             )
             t_spin.pack(side=tk.LEFT, padx=2)
-            t_spin.bind("<Return>", lambda e, idx=i, v=t_var: self._update_threshold(idx, v))
+            if not use_global_thresh:
+                t_spin.bind("<Return>", lambda e, idx=i, v=t_var: self._update_threshold(idx, v))
 
             # Feathering
             f_frame = tk.Frame(frame)
@@ -362,13 +402,22 @@ class BgRemovalPanel:
         self._cancel_event = threading.Event()
 
         try:
-            global_threshold = self.global_thresh_var.get()
+            alpha_threshold = self.alpha_thresh_var.get()
         except tk.TclError:
-            global_threshold = 30
+            alpha_threshold = 30
         color_space = self.cs_var.get()
 
         # Deep copy points so the thread has a stable snapshot
         points_snapshot = copy.deepcopy(self.points)
+
+        # If using global threshold, override all point threshold values
+        if self.use_global_thresh_var.get():
+            try:
+                global_thresh = self.global_thresh_var.get()
+            except tk.TclError:
+                global_thresh = 30
+            for pt in points_snapshot:
+                pt["threshold"] = global_thresh
 
         # If using global feathering, override all point feathering values
         if self.use_global_feather_var.get():
@@ -386,7 +435,7 @@ class BgRemovalPanel:
 
         def worker():
             result = process_background_removal(
-                source_image, points_snapshot, global_threshold, color_space,
+                source_image, points_snapshot, alpha_threshold, color_space,
                 cancel_event=cancel_event
             )
             if not cancel_event.is_set() and result is not None:

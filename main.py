@@ -8,6 +8,7 @@ from PIL import Image
 
 from bg_panel import BgRemovalPanel
 from cc_panel import ColorCorrectionPanel
+from crop_panel import SpriteCropPanel
 from image_viewer import ImageViewer
 
 
@@ -19,6 +20,7 @@ class ImageEditor:
     TOOL_CURSOR = "cursor"
     TOOL_BG_REMOVE = "bg_remove"
     TOOL_COLOR_CORRECT = "color_correct"
+    TOOL_SPRITE_CROP = "sprite_crop"
 
     def __init__(self, root):
         self.root = root
@@ -72,6 +74,12 @@ class ImageEditor:
             command=self._select_color_correct_tool
         )
         self.cc_btn.pack(side=tk.LEFT, padx=2, pady=2)
+
+        self.crop_btn = tk.Button(
+            toolbar, text="✂ Sprite Crop", relief=tk.RAISED,
+            command=self._select_sprite_crop_tool
+        )
+        self.crop_btn.pack(side=tk.LEFT, padx=2, pady=2)
 
         # Zoom indicator label (click to toggle 100% / fit)
         self.zoom_label = tk.Label(toolbar, text="100%", padx=8, cursor="hand2")
@@ -143,6 +151,15 @@ class ImageEditor:
             on_status_changed=self._set_status,
         )
 
+        # ─── Side panel: Sprite crop (hidden by default) ────────────────
+        self.crop_side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
+        self.crop_panel = SpriteCropPanel(
+            self.crop_side_panel,
+            on_apply=self._on_crop_apply,
+            on_cancel=self._on_crop_cancel,
+            on_overlay_changed=self._on_crop_overlay_changed,
+        )
+
     def _build_status_bar(self):
         self.status_bar = tk.Frame(self.root, bd=1, relief=tk.SUNKEN)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
@@ -170,6 +187,7 @@ class ImageEditor:
         self.cursor_btn.config(relief=tk.SUNKEN)
         self.bg_remove_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
+        self.crop_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_single_viewer()
         self.preview_image = None
@@ -186,6 +204,7 @@ class ImageEditor:
         self.cursor_btn.config(relief=tk.RAISED)
         self.bg_remove_btn.config(relief=tk.SUNKEN)
         self.cc_btn.config(relief=tk.RAISED)
+        self.crop_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_single_viewer()
         self.preview_image = None
@@ -205,6 +224,7 @@ class ImageEditor:
         self.cursor_btn.config(relief=tk.RAISED)
         self.bg_remove_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.SUNKEN)
+        self.crop_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_dual_viewer()
         self.preview_image = None
@@ -239,6 +259,7 @@ class ImageEditor:
     def _hide_all_panels(self):
         self.side_panel.pack_forget()
         self.cc_side_panel.pack_forget()
+        self.crop_side_panel.pack_forget()
 
     # ─── Background Removal Callbacks ───────────────────────────────────
 
@@ -297,6 +318,45 @@ class ImageEditor:
         self.cc_panel.on_reference_click(img_x, img_y)
         self.cc_ref_viewer.render()
         self.cc_source_viewer.render()
+
+    # ─── Sprite Crop Tool ───────────────────────────────────────────────
+
+    def _select_sprite_crop_tool(self):
+        if self.original_image is None:
+            messagebox.showinfo("Info", "Open an image first.")
+            return
+        self.active_tool = self.TOOL_SPRITE_CROP
+        self.cursor_btn.config(relief=tk.RAISED)
+        self.bg_remove_btn.config(relief=tk.RAISED)
+        self.cc_btn.config(relief=tk.RAISED)
+        self.crop_btn.config(relief=tk.SUNKEN)
+        self._hide_all_panels()
+        self._show_single_viewer()
+        self.preview_image = None
+        self.crop_panel.reset()
+        self.crop_panel.set_source_image(self.original_image)
+        self.crop_side_panel.pack(side=tk.RIGHT, fill=tk.Y)
+        # In sprite crop mode, left-click pans (no click interaction needed)
+        self.viewer.set_left_click_pans(True)
+        self.viewer.set_on_left_click(None)
+        self._update_viewer_image()
+
+    def _on_crop_apply(self, cropped_image):
+        """Called when user applies the sprite crop."""
+        self.original_image = cropped_image.copy()
+        self.preview_image = None
+        self.crop_panel.reset()
+        self._select_cursor_tool()
+
+    def _on_crop_cancel(self):
+        """Called when user cancels sprite crop."""
+        self.preview_image = None
+        self.crop_panel.reset()
+        self._select_cursor_tool()
+
+    def _on_crop_overlay_changed(self):
+        """Called when crop parameters change — re-render to update overlay."""
+        self.viewer.render()
 
     # ─── Color Correction Overlays ──────────────────────────────────────
 
@@ -365,21 +425,22 @@ class ImageEditor:
             self.viewer.reset_zoom()
 
     def _draw_overlay(self, canvas, draw_x, draw_y, zoom_level):
-        """Draw point markers when in BG remove mode."""
-        if self.active_tool != self.TOOL_BG_REMOVE:
-            return
-        for i, pt in enumerate(self.bg_panel.points):
-            px = draw_x + (pt["x"] + 0.5) * zoom_level
-            py = draw_y + (pt["y"] + 0.5) * zoom_level
-            r = 5
-            canvas.create_oval(
-                px - r, py - r, px + r, py + r,
-                outline="red", width=2
-            )
-            canvas.create_text(
-                px + r + 3, py, text=str(i + 1),
-                fill="red", anchor=tk.W, font=("", 8)
-            )
+        """Draw point markers when in BG remove mode, or grid when in sprite crop mode."""
+        if self.active_tool == self.TOOL_BG_REMOVE:
+            for i, pt in enumerate(self.bg_panel.points):
+                px = draw_x + (pt["x"] + 0.5) * zoom_level
+                py = draw_y + (pt["y"] + 0.5) * zoom_level
+                r = 5
+                canvas.create_oval(
+                    px - r, py - r, px + r, py + r,
+                    outline="red", width=2
+                )
+                canvas.create_text(
+                    px + r + 3, py, text=str(i + 1),
+                    fill="red", anchor=tk.W, font=("", 8)
+                )
+        elif self.active_tool == self.TOOL_SPRITE_CROP:
+            self.crop_panel.draw_overlay(canvas, draw_x, draw_y, zoom_level)
 
     def _bg_add_point(self, img_x, img_y, event):
         """Handle left-click in BG remove mode to add a sample point."""

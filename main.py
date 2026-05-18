@@ -10,6 +10,7 @@ from bg_panel import BgRemovalPanel
 from cc_panel import ColorCorrectionPanel
 from crop_panel import SpriteCropPanel
 from scale_panel import ScalePanel
+from uc_panel import UniformColorPanel
 from image_viewer import ImageViewer
 
 
@@ -23,6 +24,7 @@ class ImageEditor:
     TOOL_COLOR_CORRECT = "color_correct"
     TOOL_SPRITE_CROP = "sprite_crop"
     TOOL_SCALE = "scale"
+    TOOL_UNIFORM_COLOR = "uniform_color"
 
     def __init__(self, root):
         self.root = root
@@ -88,6 +90,12 @@ class ImageEditor:
             command=self._select_scale_tool
         )
         self.scale_btn.pack(side=tk.LEFT, padx=2, pady=2)
+
+        self.uc_btn = tk.Button(
+            toolbar, text="🎯 Uniform Color", relief=tk.RAISED,
+            command=self._select_uniform_color_tool
+        )
+        self.uc_btn.pack(side=tk.LEFT, padx=2, pady=2)
 
         # Zoom indicator label (click to toggle 100% / fit)
         self.zoom_label = tk.Label(toolbar, text="100%", padx=8, cursor="hand2")
@@ -178,6 +186,16 @@ class ImageEditor:
             on_status_changed=self._set_status,
         )
 
+        # ─── Side panel: Uniform color (hidden by default) ─────────────
+        self.uc_side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
+        self.uc_panel = UniformColorPanel(
+            self.uc_side_panel,
+            on_preview_ready=self._on_uc_preview_ready,
+            on_apply=self._on_uc_apply,
+            on_cancel=self._on_uc_cancel,
+            on_status_changed=self._set_status,
+        )
+
     def _build_status_bar(self):
         self.status_bar = tk.Frame(self.root, bd=1, relief=tk.SUNKEN)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
@@ -207,6 +225,7 @@ class ImageEditor:
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
+        self.uc_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_single_viewer()
         self.preview_image = None
@@ -226,6 +245,7 @@ class ImageEditor:
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
+        self.uc_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_single_viewer()
         self.preview_image = None
@@ -247,6 +267,7 @@ class ImageEditor:
         self.cc_btn.config(relief=tk.SUNKEN)
         self.crop_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
+        self.uc_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_dual_viewer()
         self.preview_image = None
@@ -283,6 +304,7 @@ class ImageEditor:
         self.cc_side_panel.pack_forget()
         self.crop_side_panel.pack_forget()
         self.scale_side_panel.pack_forget()
+        self.uc_side_panel.pack_forget()
 
     # ─── Background Removal Callbacks ───────────────────────────────────
 
@@ -354,6 +376,7 @@ class ImageEditor:
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.SUNKEN)
         self.scale_btn.config(relief=tk.RAISED)
+        self.uc_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_single_viewer()
         self.preview_image = None
@@ -405,6 +428,7 @@ class ImageEditor:
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.SUNKEN)
+        self.uc_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_single_viewer()
         self.preview_image = None
@@ -433,6 +457,53 @@ class ImageEditor:
         """Called when user cancels scaling."""
         self.preview_image = None
         self.scale_panel.reset()
+        self._select_cursor_tool()
+
+    # ─── Uniform Color Tool ─────────────────────────────────────────────
+
+    def _select_uniform_color_tool(self):
+        if self.original_image is None:
+            messagebox.showinfo("Info", "Open an image first.")
+            return
+        self.active_tool = self.TOOL_UNIFORM_COLOR
+        self.cursor_btn.config(relief=tk.RAISED)
+        self.bg_remove_btn.config(relief=tk.RAISED)
+        self.cc_btn.config(relief=tk.RAISED)
+        self.crop_btn.config(relief=tk.RAISED)
+        self.scale_btn.config(relief=tk.RAISED)
+        self.uc_btn.config(relief=tk.SUNKEN)
+        self._hide_all_panels()
+        self._show_single_viewer()
+        self.preview_image = None
+        self.uc_panel.reset()
+        self.uc_panel.set_source_image(self.original_image)
+        self.uc_side_panel.pack(side=tk.RIGHT, fill=tk.Y)
+        # In uniform color mode, left-click adds points
+        self.viewer.set_left_click_pans(False)
+        self.viewer.set_on_left_click(self._uc_add_point)
+        self.viewer.set_on_left_drag(None)
+        self._update_viewer_image()
+
+    def _uc_add_point(self, img_x, img_y, event):
+        """Handle left-click in uniform color mode to add a sample point."""
+        self.uc_panel.add_point(img_x, img_y)
+
+    def _on_uc_preview_ready(self, image):
+        """Called from UniformColorPanel when preview is computed."""
+        self.preview_image = image
+        self._update_viewer_image()
+
+    def _on_uc_apply(self, image):
+        """Called when user applies the uniform color."""
+        self.original_image = image.copy()
+        self.preview_image = None
+        self.uc_panel.reset()
+        self._select_cursor_tool()
+
+    def _on_uc_cancel(self):
+        """Called when user cancels uniform color."""
+        self.preview_image = None
+        self.uc_panel.reset()
         self._select_cursor_tool()
 
     # ─── Color Correction Overlays ──────────────────────────────────────
@@ -502,7 +573,7 @@ class ImageEditor:
             self.viewer.reset_zoom()
 
     def _draw_overlay(self, canvas, draw_x, draw_y, zoom_level):
-        """Draw point markers when in BG remove mode, or grid when in sprite crop mode."""
+        """Draw point markers when in BG remove or uniform color mode, or grid when in sprite crop mode."""
         if self.active_tool == self.TOOL_BG_REMOVE:
             for i, pt in enumerate(self.bg_panel.points):
                 px = draw_x + (pt["x"] + 0.5) * zoom_level
@@ -515,6 +586,19 @@ class ImageEditor:
                 canvas.create_text(
                     px + r + 3, py, text=str(i + 1),
                     fill="red", anchor=tk.W, font=("", 8)
+                )
+        elif self.active_tool == self.TOOL_UNIFORM_COLOR:
+            for i, pt in enumerate(self.uc_panel.points):
+                px = draw_x + (pt["x"] + 0.5) * zoom_level
+                py = draw_y + (pt["y"] + 0.5) * zoom_level
+                r = 5
+                canvas.create_oval(
+                    px - r, py - r, px + r, py + r,
+                    outline="orange", width=2
+                )
+                canvas.create_text(
+                    px + r + 3, py, text=str(i + 1),
+                    fill="orange", anchor=tk.W, font=("", 8)
                 )
         elif self.active_tool == self.TOOL_SPRITE_CROP:
             self.crop_panel.draw_overlay(canvas, draw_x, draw_y, zoom_level)

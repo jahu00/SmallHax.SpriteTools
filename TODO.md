@@ -1,4 +1,6 @@
+- HSI and HSB for Erode/dilate in scaling preprocessing
 - Pixellify
 - Uniform colors
+- Correct size
 - OpenCV
 - Qt

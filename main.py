@@ -286,6 +286,7 @@ class ImageEditor:
         """Handle left-click on the source viewer in color correct mode."""
         self.cc_panel.on_source_click(img_x, img_y)
         self.cc_source_viewer.render()
+        self.cc_ref_viewer.render()
 
     def _cc_ref_click(self, img_x, img_y, event):
         """Handle left-click on the reference viewer in color correct mode."""
@@ -295,6 +296,7 @@ class ImageEditor:
             return
         self.cc_panel.on_reference_click(img_x, img_y)
         self.cc_ref_viewer.render()
+        self.cc_source_viewer.render()
 
     # ─── Color Correction Overlays ──────────────────────────────────────
 

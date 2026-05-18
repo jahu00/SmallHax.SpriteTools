@@ -3,6 +3,7 @@
 import tkinter as tk
 from tkinter import ttk
 import threading
+import math
 import numpy as np
 from PIL import Image
 
@@ -74,6 +75,33 @@ class ColorCorrectionPanel:
             panel, textvariable=self._pick_status_var, font=("", 9, "italic"), fg="blue"
         )
         self._pick_status_label.pack(padx=8, anchor=tk.W, pady=(4, 2))
+
+        # ─── Area Averaging ─────────────────────────────────────────────
+        sep_avg = ttk.Separator(panel, orient=tk.HORIZONTAL)
+        sep_avg.pack(fill=tk.X, padx=8, pady=(8, 4))
+
+        self._use_area_avg_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            panel, text="Average color over area",
+            variable=self._use_area_avg_var,
+        ).pack(padx=8, anchor=tk.W)
+
+        avg_opts_frame = tk.Frame(panel)
+        avg_opts_frame.pack(fill=tk.X, padx=8, pady=2)
+
+        tk.Label(avg_opts_frame, text="Size (n):", font=("", 8)).pack(side=tk.LEFT)
+        self._area_size_var = tk.IntVar(value=2)
+        tk.Spinbox(
+            avg_opts_frame, from_=1, to=50, width=4,
+            textvariable=self._area_size_var
+        ).pack(side=tk.LEFT, padx=4)
+
+        tk.Label(avg_opts_frame, text="Shape:", font=("", 8)).pack(side=tk.LEFT, padx=(8, 0))
+        self._area_shape_var = tk.StringVar(value="Square")
+        ttk.Combobox(
+            avg_opts_frame, textvariable=self._area_shape_var,
+            values=["Square", "Round"], state="readonly", width=7
+        ).pack(side=tk.LEFT, padx=4)
 
         # ─── Pairs List ─────────────────────────────────────────────────
         sep = ttk.Separator(panel, orient=tk.HORIZONTAL)
@@ -322,6 +350,18 @@ class ColorCorrectionPanel:
                 command=lambda idx=i: self._edit_reference(idx)
             ).pack(side=tk.RIGHT, padx=2)
 
+            # Color distance row
+            dist = math.sqrt(sum(
+                (s - r) ** 2 for s, r in zip(src_color, ref_color)
+            ))
+            # Normalize to 0-255 range (max RGB distance is sqrt(3*255^2) ≈ 441.67)
+            dist_normalized = min(255, int(dist * 255 / 441.67))
+            tk.Label(
+                frame,
+                text=f"Distance: {dist_normalized}",
+                font=("", 8), fg="#666666"
+            ).pack(padx=4, anchor=tk.W, pady=(0, 2))
+
     def _remove_pair(self, idx):
         if 0 <= idx < len(self.pairs):
             self.pairs.pop(idx)
@@ -428,13 +468,49 @@ class ColorCorrectionPanel:
     # ─── Helpers ────────────────────────────────────────────────────────
 
     def _get_pixel_color(self, image, x, y):
-        """Get the RGB color of a pixel, or None if out of bounds."""
+        """Get the RGB color at (x, y), optionally averaged over a kernel area."""
         w, h = image.size
         if x < 0 or x >= w or y < 0 or y >= h:
             return None
+
         rgb = image.convert("RGB")
         arr = np.array(rgb)
-        return tuple(arr[y, x])
+
+        if not self._use_area_avg_var.get():
+            return tuple(arr[y, x])
+
+        # Area averaging with kernel size = 2*n + 1
+        try:
+            n = self._area_size_var.get()
+        except tk.TclError:
+            n = 2
+        radius = n  # half-size; full kernel is (2*n+1) x (2*n+1)
+        shape = self._area_shape_var.get()
+
+        # Compute bounding box
+        x0 = max(0, x - radius)
+        y0 = max(0, y - radius)
+        x1 = min(w, x + radius + 1)
+        y1 = min(h, y + radius + 1)
+
+        region = arr[y0:y1, x0:x1]  # (ky, kx, 3)
+
+        if shape == "Round":
+            # Build a circular mask
+            ky, kx = region.shape[:2]
+            cy, cx = (y - y0), (x - x0)
+            yy, xx = np.ogrid[:ky, :kx]
+            dist_sq = (xx - cx) ** 2 + (yy - cy) ** 2
+            mask = dist_sq <= radius * radius
+            if not np.any(mask):
+                return tuple(arr[y, x])
+            pixels = region[mask]  # (M, 3)
+        else:
+            # Square — use entire region
+            pixels = region.reshape(-1, 3)
+
+        avg = pixels.mean(axis=0).round().astype(np.uint8)
+        return tuple(avg)
 
     def _update_status(self, text):
         self._status_label.config(text=text)

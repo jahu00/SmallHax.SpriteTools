@@ -280,6 +280,45 @@ def dilate_mask(mask, amount):
     return result
 
 
+def erode_mask(mask, amount):
+    """Erode a boolean mask by amount pixels using numpy array shifts."""
+    if amount <= 0:
+        return mask
+    result = mask.copy()
+    for _ in range(amount):
+        # Shrink: pixel stays True only if all 4 neighbors are also True
+        padded = np.pad(result, 1, mode='constant', constant_values=False)
+        result = (
+            padded[1:-1, 1:-1] &  # center
+            padded[:-2, 1:-1] &   # up
+            padded[2:, 1:-1] &    # down
+            padded[1:-1, :-2] &   # left
+            padded[1:-1, 2:]      # right
+        )
+    return result
+
+
+def feather_mask(mask, amount):
+    """Apply feathering to a mask.
+
+    Positive values dilate (expand) the mask.
+    Negative values erode (shrink) the mask — useful for cleaning up
+    noise or shadows on transparent backgrounds.
+
+    Args:
+        mask: Boolean numpy array.
+        amount: Feathering amount. Positive = dilate, negative = erode.
+
+    Returns:
+        Modified boolean mask.
+    """
+    if amount > 0:
+        return dilate_mask(mask, amount)
+    elif amount < 0:
+        return erode_mask(mask, abs(amount))
+    return mask
+
+
 # ─── Main Processing Function ───────────────────────────────────────────────
 
 def process_background_removal(image, points, alpha_threshold, color_space,
@@ -312,7 +351,7 @@ def process_background_removal(image, points, alpha_threshold, color_space,
         if pt_mask is None:
             return None
 
-        pt_mask = dilate_mask(pt_mask, pt["feathering"])
+        pt_mask = feather_mask(pt_mask, pt["feathering"])
         combined_mask |= pt_mask
 
     if cancel_event and cancel_event.is_set():
@@ -512,7 +551,7 @@ def process_color_correction(image, points, alpha_threshold, distance_metric="RG
         if pt_mask is None:
             return None
 
-        pt_mask = dilate_mask(pt_mask, pt["feathering"])
+        pt_mask = feather_mask(pt_mask, pt["feathering"])
 
         if cancel_event and cancel_event.is_set():
             return None

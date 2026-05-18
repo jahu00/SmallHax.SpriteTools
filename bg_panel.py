@@ -128,7 +128,7 @@ class BgRemovalPanel:
         tk.Label(gf_frame, text="Global Feathering:").pack(side=tk.LEFT)
         self.global_feather_var = tk.IntVar(value=2)
         gf_spin = tk.Spinbox(
-            gf_frame, from_=0, to=50, width=5, textvariable=self.global_feather_var
+            gf_frame, from_=-50, to=50, width=5, textvariable=self.global_feather_var
         )
         gf_spin.pack(side=tk.LEFT, padx=4)
 
@@ -368,7 +368,7 @@ class BgRemovalPanel:
             f_var = tk.IntVar(value=pt["feathering"])
             feather_state = tk.DISABLED if use_global_feather else tk.NORMAL
             f_spin = tk.Spinbox(
-                f_frame, from_=0, to=50, width=4, textvariable=f_var,
+                f_frame, from_=-50, to=50, width=4, textvariable=f_var,
                 state=feather_state
             )
             f_spin.pack(side=tk.LEFT, padx=2)

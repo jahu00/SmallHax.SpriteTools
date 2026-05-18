@@ -1,4 +1,4 @@
-- Global threshold separate from alpha threshold
-- Use NumPy
-- Spritesheet processing
 - Pixellify
+- Uniform colors
+- OpenCV
+- Qt

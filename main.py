@@ -194,6 +194,7 @@ class ImageEditor:
         # In cursor mode, left-click pans
         self.viewer.set_left_click_pans(True)
         self.viewer.set_on_left_click(None)
+        self.viewer.set_on_left_drag(None)
         self._update_viewer_image()
 
     def _select_bg_remove_tool(self):
@@ -336,14 +337,15 @@ class ImageEditor:
         self.crop_panel.reset()
         self.crop_panel.set_source_image(self.original_image)
         self.crop_side_panel.pack(side=tk.RIGHT, fill=tk.Y)
-        # In sprite crop mode, left-click pans (no click interaction needed)
-        self.viewer.set_left_click_pans(True)
-        self.viewer.set_on_left_click(None)
+        # In sprite crop mode, left-click interacts with handles
+        self.viewer.set_left_click_pans(False)
+        self.viewer.set_on_left_click(self._crop_on_click)
+        self.viewer.set_on_left_drag(self._crop_on_drag)
         self._update_viewer_image()
 
-    def _on_crop_apply(self, cropped_image):
-        """Called when user applies the sprite crop."""
-        self.original_image = cropped_image.copy()
+    def _on_crop_apply(self, image):
+        """Called when user applies the sprite crop. Receives a reconstructed image."""
+        self.original_image = image.copy()
         self.preview_image = None
         self.crop_panel.reset()
         self._select_cursor_tool()
@@ -356,6 +358,16 @@ class ImageEditor:
 
     def _on_crop_overlay_changed(self):
         """Called when crop parameters change — re-render to update overlay."""
+        self.viewer.render()
+
+    def _crop_on_click(self, img_x, img_y, event):
+        """Handle left-click in sprite crop mode — start drag on a handle."""
+        self.crop_panel.on_mouse_press(img_x, img_y)
+        self.viewer.render()
+
+    def _crop_on_drag(self, img_x, img_y, event):
+        """Handle left-drag in sprite crop mode — move the active handle."""
+        self.crop_panel.on_mouse_drag(img_x, img_y)
         self.viewer.render()
 
     # ─── Color Correction Overlays ──────────────────────────────────────

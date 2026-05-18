@@ -79,3 +79,44 @@ def crop_tile(image, rects, index):
 
     x, y, tw, th = rects[index]
     return image.crop((int(x), int(y), int(x + tw), int(y + th)))
+
+
+def crop_all_tiles(image, rects, rows, cols):
+    """Crop all tiles and reconstruct them into a single image.
+
+    Tiles are placed in a grid with no margins — each tile directly
+    adjacent to its neighbours.
+
+    Args:
+        image: Source PIL Image.
+        rects: List of (x, y, w, h) tuples from compute_tile_rects.
+        rows: Number of tile rows.
+        cols: Number of tile columns.
+
+    Returns:
+        A single PIL Image containing all tiles arranged in the grid,
+        or None if rects is empty.
+    """
+    if not rects:
+        return None
+
+    # All tiles share the same dimensions
+    _, _, tile_w, tile_h = rects[0]
+    tw = int(tile_w)
+    th = int(tile_h)
+
+    if tw <= 0 or th <= 0:
+        return None
+
+    out_w = tw * cols
+    out_h = th * rows
+
+    result = Image.new(image.mode, (out_w, out_h))
+
+    for idx, (x, y, w, h) in enumerate(rects):
+        tile = image.crop((int(x), int(y), int(x + w), int(y + h)))
+        row = idx // cols
+        col = idx % cols
+        result.paste(tile, (col * tw, row * th))
+
+    return result

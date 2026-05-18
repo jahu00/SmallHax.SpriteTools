@@ -175,7 +175,11 @@ class ColorCorrectionPanel:
             self._schedule_preview()
             return
 
-        if self._picking is None:
+        if self._picking == "ref":
+            # Was waiting for reference but user clicked source again — cancel pick
+            self._picking = None
+            self._pick_status_var.set("")
+        elif self._picking is None:
             # Start a new pair: source picked first
             color = self._get_pixel_color(self._source_image, img_x, img_y)
             if color is None:
@@ -186,7 +190,7 @@ class ColorCorrectionPanel:
                 f"Source: ({img_x}, {img_y}) — now click reference image"
             )
         elif self._picking == "src":
-            # Was waiting for source (after ref was picked first — unusual but handle it)
+            # Was waiting for source (after ref was picked first) — complete pair
             color = self._get_pixel_color(self._source_image, img_x, img_y)
             if color is None:
                 return
@@ -239,6 +243,10 @@ class ColorCorrectionPanel:
             self._pick_status_var.set("")
             self._refresh_pairs_list()
             self._schedule_preview()
+        elif self._picking == "src":
+            # Was waiting for source but user clicked reference again — cancel pick
+            self._picking = None
+            self._pick_status_var.set("")
         elif self._picking is None:
             # Start a new pair: reference picked first
             color = self._get_pixel_color(self._reference_image, img_x, img_y)

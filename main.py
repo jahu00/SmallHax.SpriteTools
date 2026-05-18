@@ -76,7 +76,7 @@ class ImageEditor:
         # Zoom indicator label (click to toggle 100% / fit)
         self.zoom_label = tk.Label(toolbar, text="100%", padx=8, cursor="hand2")
         self.zoom_label.pack(side=tk.RIGHT, padx=4, pady=2)
-        self.zoom_label.bind("<Button-1>", lambda e: self.viewer.reset_zoom())
+        self.zoom_label.bind("<Button-1>", lambda e: self._toggle_zoom())
 
     def _build_main_area(self):
         self.main_frame = tk.Frame(self.root)
@@ -106,6 +106,10 @@ class ImageEditor:
         self.cc_source_viewer.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.cc_source_viewer.set_on_zoom_changed(self._on_zoom_changed)
         self.cc_source_viewer.set_on_draw_overlay(self._draw_cc_source_overlay)
+
+        # Drag-and-drop on the source viewer for loading source image
+        self.cc_source_viewer.canvas.drop_target_register(DND_FILES)
+        self.cc_source_viewer.canvas.dnd_bind("<<Drop>>", self._on_cc_source_drop)
 
         # Separator between the two viewers
         sep = tk.Frame(self.dual_viewer_frame, width=2, bg="#888888")
@@ -299,8 +303,8 @@ class ImageEditor:
         if self.active_tool != self.TOOL_COLOR_CORRECT:
             return
         for i, pair in enumerate(self.cc_panel.pairs):
-            px = draw_x + pair["src_x"] * zoom_level
-            py = draw_y + pair["src_y"] * zoom_level
+            px = draw_x + (pair["src_x"] + 0.5) * zoom_level
+            py = draw_y + (pair["src_y"] + 0.5) * zoom_level
             r = 5
             canvas.create_oval(
                 px - r, py - r, px + r, py + r,
@@ -326,8 +330,8 @@ class ImageEditor:
             )
             return
         for i, pair in enumerate(self.cc_panel.pairs):
-            px = draw_x + pair["ref_x"] * zoom_level
-            py = draw_y + pair["ref_y"] * zoom_level
+            px = draw_x + (pair["ref_x"] + 0.5) * zoom_level
+            py = draw_y + (pair["ref_y"] + 0.5) * zoom_level
             r = 5
             canvas.create_oval(
                 px - r, py - r, px + r, py + r,
@@ -349,13 +353,22 @@ class ImageEditor:
         percent = int(zoom_level * 100)
         self.zoom_label.config(text=f"{percent}%")
 
+    def _toggle_zoom(self):
+        """Toggle between fit-to-canvas and 100% zoom on the active viewer(s)."""
+        if self.active_tool == self.TOOL_COLOR_CORRECT:
+            self.cc_source_viewer.reset_zoom()
+            if self.reference_image is not None:
+                self.cc_ref_viewer.reset_zoom()
+        else:
+            self.viewer.reset_zoom()
+
     def _draw_overlay(self, canvas, draw_x, draw_y, zoom_level):
         """Draw point markers when in BG remove mode."""
         if self.active_tool != self.TOOL_BG_REMOVE:
             return
         for i, pt in enumerate(self.bg_panel.points):
-            px = draw_x + pt["x"] * zoom_level
-            py = draw_y + pt["y"] * zoom_level
+            px = draw_x + (pt["x"] + 0.5) * zoom_level
+            py = draw_y + (pt["y"] + 0.5) * zoom_level
             r = 5
             canvas.create_oval(
                 px - r, py - r, px + r, py + r,
@@ -410,6 +423,21 @@ class ImageEditor:
         if path.startswith("{") and path.endswith("}"):
             path = path[1:-1]
         self._set_reference_image(path)
+
+    def _on_cc_source_drop(self, event):
+        """Handle drag-and-drop on the source viewer in color correct mode."""
+        path = event.data.strip()
+        if path.startswith("{") and path.endswith("}"):
+            path = path[1:-1]
+        self._load_image(path)
+        # Update the color correction tool state with the new source
+        if self.original_image is not None and self.active_tool == self.TOOL_COLOR_CORRECT:
+            self.cc_panel.reset()
+            self.cc_panel.set_source_image(self.original_image)
+            if self.reference_image is not None:
+                self.cc_panel.set_reference_image(self.reference_image)
+            self.cc_source_viewer.image = self.original_image
+            self.cc_source_viewer.fit_image()
 
     # ─── Drag and Drop (main viewer) ───────────────────────────────────
 

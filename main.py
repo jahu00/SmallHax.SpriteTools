@@ -11,6 +11,7 @@ from cc_panel import ColorCorrectionPanel
 from crop_panel import SpriteCropPanel
 from scale_panel import ScalePanel
 from uc_panel import UniformColorPanel
+from gc_panel import GeometryCorrectionPanel
 from image_viewer import ImageViewer
 
 
@@ -25,6 +26,7 @@ class ImageEditor:
     TOOL_SPRITE_CROP = "sprite_crop"
     TOOL_SCALE = "scale"
     TOOL_UNIFORM_COLOR = "uniform_color"
+    TOOL_GEOMETRY_CORRECT = "geometry_correct"
 
     def __init__(self, root):
         self.root = root
@@ -96,6 +98,12 @@ class ImageEditor:
             command=self._select_uniform_color_tool
         )
         self.uc_btn.pack(side=tk.LEFT, padx=2, pady=2)
+
+        self.gc_btn = tk.Button(
+            toolbar, text="📐 Geometry", relief=tk.RAISED,
+            command=self._select_geometry_correct_tool
+        )
+        self.gc_btn.pack(side=tk.LEFT, padx=2, pady=2)
 
         # Zoom indicator label (click to toggle 100% / fit)
         self.zoom_label = tk.Label(toolbar, text="100%", padx=8, cursor="hand2")
@@ -196,6 +204,16 @@ class ImageEditor:
             on_status_changed=self._set_status,
         )
 
+        # ─── Side panel: Geometry correction (hidden by default) ────────
+        self.gc_side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
+        self.gc_panel = GeometryCorrectionPanel(
+            self.gc_side_panel,
+            on_preview_ready=self._on_gc_preview_ready,
+            on_apply=self._on_gc_apply,
+            on_cancel=self._on_gc_cancel,
+            on_status_changed=self._set_status,
+        )
+
     def _build_status_bar(self):
         self.status_bar = tk.Frame(self.root, bd=1, relief=tk.SUNKEN)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
@@ -226,6 +244,7 @@ class ImageEditor:
         self.crop_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
         self.uc_btn.config(relief=tk.RAISED)
+        self.gc_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_single_viewer()
         self.preview_image = None
@@ -246,6 +265,7 @@ class ImageEditor:
         self.crop_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
         self.uc_btn.config(relief=tk.RAISED)
+        self.gc_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_single_viewer()
         self.preview_image = None
@@ -268,6 +288,7 @@ class ImageEditor:
         self.crop_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
         self.uc_btn.config(relief=tk.RAISED)
+        self.gc_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_dual_viewer()
         self.preview_image = None
@@ -279,9 +300,12 @@ class ImageEditor:
         # Source viewer: left-click picks source point
         self.cc_source_viewer.set_left_click_pans(False)
         self.cc_source_viewer.set_on_left_click(self._cc_source_click)
+        self.cc_source_viewer.set_on_draw_overlay(self._draw_cc_source_overlay)
+        self.cc_source_viewer.set_bg_color_func(None)
         # Reference viewer: left-click picks ref point or loads image
         self.cc_ref_viewer.set_left_click_pans(False)
         self.cc_ref_viewer.set_on_left_click(self._cc_ref_click)
+        self.cc_ref_viewer.set_on_draw_overlay(self._draw_cc_ref_overlay)
         # Update viewers
         self.cc_source_viewer.image = self.original_image
         self.cc_source_viewer.fit_image()
@@ -305,6 +329,7 @@ class ImageEditor:
         self.crop_side_panel.pack_forget()
         self.scale_side_panel.pack_forget()
         self.uc_side_panel.pack_forget()
+        self.gc_side_panel.pack_forget()
 
     # ─── Background Removal Callbacks ───────────────────────────────────
 
@@ -377,6 +402,7 @@ class ImageEditor:
         self.crop_btn.config(relief=tk.SUNKEN)
         self.scale_btn.config(relief=tk.RAISED)
         self.uc_btn.config(relief=tk.RAISED)
+        self.gc_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_single_viewer()
         self.preview_image = None
@@ -429,6 +455,7 @@ class ImageEditor:
         self.crop_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.SUNKEN)
         self.uc_btn.config(relief=tk.RAISED)
+        self.gc_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_single_viewer()
         self.preview_image = None
@@ -472,6 +499,7 @@ class ImageEditor:
         self.crop_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
         self.uc_btn.config(relief=tk.SUNKEN)
+        self.gc_btn.config(relief=tk.RAISED)
         self._hide_all_panels()
         self._show_single_viewer()
         self.preview_image = None
@@ -505,6 +533,184 @@ class ImageEditor:
         self.preview_image = None
         self.uc_panel.reset()
         self._select_cursor_tool()
+
+    # ─── Geometry Correction Tool ───────────────────────────────────────
+
+    def _select_geometry_correct_tool(self):
+        if self.original_image is None:
+            messagebox.showinfo("Info", "Open an image first.")
+            return
+        self.active_tool = self.TOOL_GEOMETRY_CORRECT
+        self.cursor_btn.config(relief=tk.RAISED)
+        self.bg_remove_btn.config(relief=tk.RAISED)
+        self.cc_btn.config(relief=tk.RAISED)
+        self.crop_btn.config(relief=tk.RAISED)
+        self.scale_btn.config(relief=tk.RAISED)
+        self.uc_btn.config(relief=tk.RAISED)
+        self.gc_btn.config(relief=tk.SUNKEN)
+        self._hide_all_panels()
+        self._show_dual_viewer()
+        self.preview_image = None
+        self.gc_panel.reset()
+        self.gc_panel.set_source_image(self.original_image)
+        if self.reference_image is not None:
+            self.gc_panel.set_reference_image(self.reference_image)
+        self.gc_side_panel.pack(side=tk.RIGHT, fill=tk.Y)
+        # Source viewer: left-click picks actual position
+        self.cc_source_viewer.set_left_click_pans(False)
+        self.cc_source_viewer.set_on_left_click(self._gc_source_click)
+        self.cc_source_viewer.set_on_draw_overlay(self._draw_gc_source_overlay)
+        self.cc_source_viewer.set_bg_color_func(self._get_gc_bg_color)
+        # Reference viewer: left-click picks expected position or loads image
+        self.cc_ref_viewer.set_left_click_pans(False)
+        self.cc_ref_viewer.set_on_left_click(self._gc_ref_click)
+        self.cc_ref_viewer.set_on_draw_overlay(self._draw_gc_ref_overlay)
+        # Update viewers
+        self.cc_source_viewer.image = self.original_image
+        self.cc_source_viewer.fit_image()
+        self.cc_ref_viewer.image = self.reference_image
+        if self.reference_image:
+            self.cc_ref_viewer.fit_image()
+        # Bind right-click for bg color picking on source viewer
+        self.cc_source_viewer.canvas.bind("<ButtonPress-3>", self._gc_on_right_click)
+
+    def _gc_source_click(self, img_x, img_y, event):
+        """Handle left-click on the source viewer in geometry correct mode."""
+        # Check if we're completing a pair started from reference side
+        if self.gc_panel.on_source_click_after_ref(img_x, img_y):
+            self.cc_source_viewer.render()
+            self.cc_ref_viewer.render()
+            return
+        self.gc_panel.on_source_click(img_x, img_y)
+        self.cc_source_viewer.render()
+        self.cc_ref_viewer.render()
+
+    def _gc_ref_click(self, img_x, img_y, event):
+        """Handle left-click on the reference viewer in geometry correct mode."""
+        if self.reference_image is None:
+            # No reference image loaded yet — prompt to load one
+            self._load_gc_reference_image()
+            return
+        self.gc_panel.on_reference_click(img_x, img_y)
+        self.cc_ref_viewer.render()
+        self.cc_source_viewer.render()
+
+    def _gc_on_right_click(self, event):
+        """Handle right-click in geometry correction mode to pick bg color."""
+        if self.active_tool != self.TOOL_GEOMETRY_CORRECT:
+            return
+        coords = self.cc_source_viewer.canvas_to_image_coords(event.x, event.y)
+        if coords:
+            self.gc_panel.on_right_click(coords[0], coords[1])
+
+    def _load_gc_reference_image(self):
+        """Open a file dialog to load the reference image for geometry correction."""
+        path = filedialog.askopenfilename(
+            title="Open Reference Image",
+            filetypes=[
+                ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.tiff *.webp"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not path:
+            return
+        self._set_gc_reference_image(path)
+
+    def _set_gc_reference_image(self, path):
+        """Load a reference image from path for geometry correction."""
+        try:
+            self.reference_image = Image.open(path)
+            self.reference_image.load()
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open reference image:\n{e}")
+            return
+        self.gc_panel.set_reference_image(self.reference_image)
+        self.cc_ref_viewer.image = self.reference_image
+        self.cc_ref_viewer.fit_image()
+
+    def _on_gc_preview_ready(self, image):
+        """Called from GeometryCorrectionPanel when preview is computed."""
+        self.preview_image = image
+        # Update the source viewer with the preview (or original if None)
+        display = self.preview_image if self.preview_image else self.original_image
+        self.cc_source_viewer.image = display
+
+    def _on_gc_apply(self, image):
+        """Called when user applies the geometry correction."""
+        self.original_image = image.copy()
+        self.preview_image = None
+        self.gc_panel.reset()
+        self.cc_source_viewer.canvas.unbind("<ButtonPress-3>")
+        self.cc_source_viewer.set_bg_color_func(None)
+        self._select_cursor_tool()
+
+    def _on_gc_cancel(self):
+        """Called when user cancels geometry correction."""
+        self.preview_image = None
+        self.gc_panel.reset()
+        self.cc_source_viewer.canvas.unbind("<ButtonPress-3>")
+        self.cc_source_viewer.set_bg_color_func(None)
+        self._select_cursor_tool()
+
+    def _get_gc_bg_color(self):
+        """Return the preview background color for geometry correction viewer."""
+        return self.gc_panel.get_preview_bg_color()
+
+    # ─── Geometry Correction Overlays ───────────────────────────────────
+
+    def _draw_gc_source_overlay(self, canvas, draw_x, draw_y, zoom_level):
+        """Draw actual position markers on the source viewer."""
+        if self.active_tool != self.TOOL_GEOMETRY_CORRECT:
+            return
+        for i, pt in enumerate(self.gc_panel.points):
+            px = draw_x + (pt["src_x"] + 0.5) * zoom_level
+            py = draw_y + (pt["src_y"] + 0.5) * zoom_level
+            r = 5
+            canvas.create_oval(
+                px - r, py - r, px + r, py + r,
+                outline="cyan", width=2
+            )
+            canvas.create_text(
+                px + r + 3, py, text=str(i + 1),
+                fill="cyan", anchor=tk.W, font=("", 8)
+            )
+        # Draw pending source point (dashed)
+        if self.gc_panel._pending_src is not None:
+            pt = self.gc_panel._pending_src
+            px = draw_x + (pt["x"] + 0.5) * zoom_level
+            py = draw_y + (pt["y"] + 0.5) * zoom_level
+            r = 5
+            canvas.create_oval(
+                px - r, py - r, px + r, py + r,
+                outline="cyan", width=2, dash=(2, 2)
+            )
+
+    def _draw_gc_ref_overlay(self, canvas, draw_x, draw_y, zoom_level):
+        """Draw expected position markers on the reference viewer."""
+        if self.active_tool != self.TOOL_GEOMETRY_CORRECT:
+            return
+        if self.reference_image is None:
+            # Draw hint text
+            cw = canvas.winfo_width()
+            ch = canvas.winfo_height()
+            canvas.create_text(
+                cw / 2, ch / 2,
+                text="Click or drag-and-drop\nto load reference image",
+                fill="#aaaaaa", font=("", 12), justify=tk.CENTER
+            )
+            return
+        for i, pt in enumerate(self.gc_panel.points):
+            px = draw_x + (pt["ref_x"] + 0.5) * zoom_level
+            py = draw_y + (pt["ref_y"] + 0.5) * zoom_level
+            r = 5
+            canvas.create_oval(
+                px - r, py - r, px + r, py + r,
+                outline="magenta", width=2
+            )
+            canvas.create_text(
+                px + r + 3, py, text=str(i + 1),
+                fill="magenta", anchor=tk.W, font=("", 8)
+            )
 
     # ─── Color Correction Overlays ──────────────────────────────────────
 
@@ -565,7 +771,7 @@ class ImageEditor:
 
     def _toggle_zoom(self):
         """Toggle between fit-to-canvas and 100% zoom on the active viewer(s)."""
-        if self.active_tool == self.TOOL_COLOR_CORRECT:
+        if self.active_tool in (self.TOOL_COLOR_CORRECT, self.TOOL_GEOMETRY_CORRECT):
             self.cc_source_viewer.reset_zoom()
             if self.reference_image is not None:
                 self.cc_ref_viewer.reset_zoom()
@@ -646,7 +852,10 @@ class ImageEditor:
         path = event.data.strip()
         if path.startswith("{") and path.endswith("}"):
             path = path[1:-1]
-        self._set_reference_image(path)
+        if self.active_tool == self.TOOL_GEOMETRY_CORRECT:
+            self._set_gc_reference_image(path)
+        else:
+            self._set_reference_image(path)
 
     def _on_cc_source_drop(self, event):
         """Handle drag-and-drop on the source viewer in color correct mode."""

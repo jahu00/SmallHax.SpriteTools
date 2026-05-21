@@ -566,7 +566,8 @@ class ImageEditor:
         self.cc_ref_viewer.set_on_left_click(self._gc_ref_click)
         self.cc_ref_viewer.set_on_draw_overlay(self._draw_gc_ref_overlay)
         # Update viewers
-        self.cc_source_viewer.image = self.original_image
+        display = self.gc_panel.get_display_image(self.original_image)
+        self.cc_source_viewer.image = display
         self.cc_source_viewer.fit_image()
         self.cc_ref_viewer.image = self.reference_image
         if self.reference_image:
@@ -632,7 +633,8 @@ class ImageEditor:
         """Called from GeometryCorrectionPanel when preview is computed."""
         self.preview_image = image
         # Update the source viewer with the preview (or original if None)
-        display = self.preview_image if self.preview_image else self.original_image
+        base = self.preview_image if self.preview_image else self.original_image
+        display = self.gc_panel.get_display_image(base)
         self.cc_source_viewer.image = display
 
     def _on_gc_apply(self, image):

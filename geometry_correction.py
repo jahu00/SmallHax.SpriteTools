@@ -48,6 +48,7 @@ def compute_geometry_coefficients(points):
 def apply_geometry_correction(image, points, offset_mode="ignore",
                               resample_method="Lanczos",
                               bg_color=(0, 0, 0, 0),
+                              coeffs_override=None,
                               cancel_event=None):
     """Apply geometry correction to an image.
 
@@ -65,17 +66,22 @@ def apply_geometry_correction(image, points, offset_mode="ignore",
             - keep: Similar to expand but retains original resolution.
         resample_method: Name of resampling method (key from RESAMPLE_METHODS).
         bg_color: Background color tuple (R, G, B, A) for filling empty areas.
+        coeffs_override: Optional dict with keys a_x, b_x, a_y, b_y.
+            If provided, these coefficients are used directly instead of
+            computing them from points.
         cancel_event: Optional threading.Event for cancellation.
 
     Returns:
         Corrected PIL Image, or None if cancelled or insufficient points.
     """
-    if len(points) < 2:
-        return None
-
-    coeffs = compute_geometry_coefficients(points)
-    if coeffs is None:
-        return None
+    if coeffs_override is not None:
+        coeffs = coeffs_override
+    else:
+        if len(points) < 2:
+            return None
+        coeffs = compute_geometry_coefficients(points)
+        if coeffs is None:
+            return None
 
     if cancel_event and cancel_event.is_set():
         return None

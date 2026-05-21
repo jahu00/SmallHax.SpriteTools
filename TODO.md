@@ -1,6 +1,10 @@
 - HSI and HSB for Erode/dilate in scaling preprocessing
 - Pixellify
-- Uniform colors
 - Correct size
+- Drag handlers on scaling screen
+- Reference and opnion skin on scaling screen
+- Disable preview on remove background
+- Add ability to hide reference
+- rearrange UI/buttons
 - OpenCV
 - Qt

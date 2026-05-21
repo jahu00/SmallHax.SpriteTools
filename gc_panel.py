@@ -29,7 +29,7 @@ BG_COLORS = {
     "Blue": (0, 0, 255, 255),
     "Magenta": (255, 0, 255, 255),
     "Gray": (128, 128, 128, 255),
-    "Average": None,  # computed from image
+    "Custom": None,  # set by right-click
 }
 
 
@@ -154,6 +154,30 @@ class GeometryCorrectionPanel:
             padx=8, anchor=tk.W
         )
 
+        # Average color option for right-click picking
+        self._use_area_avg_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            panel, text="Average color over area",
+            variable=self._use_area_avg_var,
+        ).pack(padx=8, anchor=tk.W)
+
+        avg_opts_frame = tk.Frame(panel)
+        avg_opts_frame.pack(fill=tk.X, padx=8, pady=2)
+
+        tk.Label(avg_opts_frame, text="Size (n):", font=("", 8)).pack(side=tk.LEFT)
+        self._area_size_var = tk.IntVar(value=2)
+        tk.Spinbox(
+            avg_opts_frame, from_=1, to=50, width=4,
+            textvariable=self._area_size_var
+        ).pack(side=tk.LEFT, padx=4)
+
+        tk.Label(avg_opts_frame, text="Shape:", font=("", 8)).pack(side=tk.LEFT, padx=(8, 0))
+        self._area_shape_var = tk.StringVar(value="Square")
+        ttk.Combobox(
+            avg_opts_frame, textvariable=self._area_shape_var,
+            values=["Square", "Round"], state="readonly", width=7
+        ).pack(side=tk.LEFT, padx=4)
+
         # ─── Preview Background (for viewer) ────────────────────────────
         sep_preview_bg = ttk.Separator(panel, orient=tk.HORIZONTAL)
         sep_preview_bg.pack(fill=tk.X, padx=8, pady=(8, 4))
@@ -170,14 +194,74 @@ class GeometryCorrectionPanel:
         self._preview_bg_dropdown.pack(side=tk.LEFT, padx=4)
         self._preview_bg_dropdown.bind("<<ComboboxSelected>>", lambda e: self._on_preview_bg_changed())
 
-        # ─── Coefficients Display ───────────────────────────────────────
+        # ─── Onion Skin ─────────────────────────────────────────────────
+        sep_onion = ttk.Separator(panel, orient=tk.HORIZONTAL)
+        sep_onion.pack(fill=tk.X, padx=8, pady=(8, 4))
+
+        self._onion_skin_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            panel, text="Onion skin (overlay reference)",
+            variable=self._onion_skin_var,
+            command=self._on_onion_skin_changed
+        ).pack(padx=8, anchor=tk.W)
+
+        onion_frame = tk.Frame(panel)
+        onion_frame.pack(fill=tk.X, padx=8, pady=2)
+        tk.Label(onion_frame, text="Opacity:", font=("", 8)).pack(side=tk.LEFT)
+        self._onion_opacity_var = tk.IntVar(value=50)
+        self._onion_slider = tk.Scale(
+            onion_frame, from_=0, to=100, orient=tk.HORIZONTAL,
+            variable=self._onion_opacity_var, showvalue=True,
+            command=lambda v: self._on_onion_skin_changed()
+        )
+        self._onion_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+        # ─── Coefficients ───────────────────────────────────────────────
         sep_coeff = ttk.Separator(panel, orient=tk.HORIZONTAL)
         sep_coeff.pack(fill=tk.X, padx=8, pady=(8, 4))
 
-        self._coeff_var = tk.StringVar(value="Coefficients: (need ≥2 points)")
-        tk.Label(panel, textvariable=self._coeff_var, font=("", 8), fg="gray").pack(
+        tk.Label(panel, text="Coefficients:", font=("", 10)).pack(
             padx=8, anchor=tk.W
         )
+
+        # Override checkbox — prevents auto-update from points
+        self._coeff_override_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            panel, text="Override (manual values)",
+            variable=self._coeff_override_var,
+        ).pack(padx=8, anchor=tk.W)
+
+        # a_x, b_x row
+        ax_frame = tk.Frame(panel)
+        ax_frame.pack(fill=tk.X, padx=8, pady=2)
+        tk.Label(ax_frame, text="X:  a=", font=("", 8)).pack(side=tk.LEFT)
+        self._ax_var = tk.StringVar(value="100")
+        self._ax_entry = tk.Entry(ax_frame, textvariable=self._ax_var, width=7)
+        self._ax_entry.pack(side=tk.LEFT, padx=2)
+        tk.Label(ax_frame, text="%  b=", font=("", 8)).pack(side=tk.LEFT)
+        self._bx_var = tk.StringVar(value="0")
+        self._bx_entry = tk.Entry(ax_frame, textvariable=self._bx_var, width=7)
+        self._bx_entry.pack(side=tk.LEFT, padx=2)
+        tk.Label(ax_frame, text="px", font=("", 8)).pack(side=tk.LEFT)
+
+        # a_y, b_y row
+        ay_frame = tk.Frame(panel)
+        ay_frame.pack(fill=tk.X, padx=8, pady=2)
+        tk.Label(ay_frame, text="Y:  a=", font=("", 8)).pack(side=tk.LEFT)
+        self._ay_var = tk.StringVar(value="100")
+        self._ay_entry = tk.Entry(ay_frame, textvariable=self._ay_var, width=7)
+        self._ay_entry.pack(side=tk.LEFT, padx=2)
+        tk.Label(ay_frame, text="%  b=", font=("", 8)).pack(side=tk.LEFT)
+        self._by_var = tk.StringVar(value="0")
+        self._by_entry = tk.Entry(ay_frame, textvariable=self._by_var, width=7)
+        self._by_entry.pack(side=tk.LEFT, padx=2)
+        tk.Label(ay_frame, text="px", font=("", 8)).pack(side=tk.LEFT)
+
+        # Trace changes on coefficient entries to trigger preview
+        self._ax_var.trace_add("write", lambda *_: self._on_coeff_entry_changed())
+        self._bx_var.trace_add("write", lambda *_: self._on_coeff_entry_changed())
+        self._ay_var.trace_add("write", lambda *_: self._on_coeff_entry_changed())
+        self._by_var.trace_add("write", lambda *_: self._on_coeff_entry_changed())
 
         # ─── Points List ────────────────────────────────────────────────
         sep_pts = ttk.Separator(panel, orient=tk.HORIZONTAL)
@@ -256,7 +340,11 @@ class GeometryCorrectionPanel:
         self._preview_var.set(False)
         self._bg_color_override = None
         self._pick_status_var.set("")
-        self._coeff_var.set("Coefficients: (need ≥2 points)")
+        self._coeff_override_var.set(False)
+        self._ax_var.set("100")
+        self._bx_var.set("0")
+        self._ay_var.set("100")
+        self._by_var.set("0")
         self._refresh_points_list()
         self._update_status("")
         self._update_bg_swatch()
@@ -357,10 +445,10 @@ class GeometryCorrectionPanel:
         """Handle a right-click on either image to pick background color."""
         if self._source_image is None:
             return
-        color = self._get_pixel_color(self._source_image, img_x, img_y)
+        color = self._get_bg_pick_color(self._source_image, img_x, img_y)
         if color is not None:
             self._bg_color_override = (color[0], color[1], color[2], 255)
-            self._bg_color_var.set("Transparent")  # reset dropdown since we have custom
+            self._bg_color_var.set("Custom")
             self._update_bg_swatch()
             self._on_settings_changed()
 
@@ -455,25 +543,52 @@ class GeometryCorrectionPanel:
     # ─── Coefficients ───────────────────────────────────────────────────
 
     def _update_coefficients(self):
-        """Update the coefficients display."""
+        """Update the coefficient inputs from computed values (unless override is on)."""
+        if self._coeff_override_var.get():
+            # Override active — don't update inputs from points
+            return
+
         if len(self.points) < 2:
-            self._coeff_var.set("Coefficients: (need ≥2 points)")
             return
 
         coeffs = compute_geometry_coefficients(self.points)
         if coeffs is None:
-            self._coeff_var.set("Coefficients: error computing")
             return
 
-        self._coeff_var.set(
-            f"X: {coeffs['a_x']:.4f}x + {coeffs['b_x']:.1f}  |  "
-            f"Y: {coeffs['a_y']:.4f}y + {coeffs['b_y']:.1f}"
-        )
+        # Display a as percentage (a=1.0 means 100%)
+        self._ax_var.set(f"{coeffs['a_x'] * 100:.2f}")
+        self._bx_var.set(f"{coeffs['b_x']:.1f}")
+        self._ay_var.set(f"{coeffs['a_y'] * 100:.2f}")
+        self._by_var.set(f"{coeffs['b_y']:.1f}")
+
+    def _on_coeff_entry_changed(self):
+        """Called when user edits a coefficient entry — trigger preview if override is on."""
+        if self._coeff_override_var.get():
+            self._schedule_preview()
+
+    def _get_coeffs_from_inputs(self):
+        """Read coefficient values from the input fields.
+
+        Returns:
+            Dict with keys a_x, b_x, a_y, b_y, or None if parsing fails.
+        """
+        try:
+            a_x = float(self._ax_var.get()) / 100.0
+            b_x = float(self._bx_var.get())
+            a_y = float(self._ay_var.get()) / 100.0
+            b_y = float(self._by_var.get())
+        except (ValueError, tk.TclError):
+            return None
+        return {"a_x": a_x, "b_x": b_x, "a_y": a_y, "b_y": b_y}
 
     # ─── Settings Changed ───────────────────────────────────────────────
 
     def _on_settings_changed(self):
         """Called when offset mode, resample, or bg color changes."""
+        # If user selected a predefined color (not Custom), clear the override
+        name = self._bg_color_var.get()
+        if name != "Custom":
+            self._bg_color_override = None
         self._update_bg_swatch()
         self._schedule_preview()
 
@@ -483,20 +598,70 @@ class GeometryCorrectionPanel:
         if self._preview_result is not None:
             self._on_preview_ready(self._preview_result)
 
+    def _on_onion_skin_changed(self):
+        """Called when onion skin checkbox or opacity slider changes."""
+        # Trigger a viewer update via the preview callback
+        self._on_preview_ready(self._preview_result)
+
+    def get_display_image(self, base_image):
+        """Apply onion skin overlay if enabled, returning the image to display.
+
+        Args:
+            base_image: The base image (preview result or original source).
+
+        Returns:
+            The image to display in the source viewer (with onion skin if enabled).
+        """
+        if base_image is None:
+            return None
+
+        if not self._onion_skin_var.get() or self._reference_image is None:
+            return base_image
+
+        try:
+            opacity = self._onion_opacity_var.get()
+        except tk.TclError:
+            opacity = 50
+
+        # Clamp opacity
+        opacity = max(0, min(100, opacity))
+        if opacity == 0:
+            return base_image
+
+        # Convert both to RGBA for compositing
+        base = base_image.convert("RGBA")
+        ref = self._reference_image.convert("RGBA")
+
+        # Resize reference to match base dimensions
+        if ref.size != base.size:
+            ref = ref.resize(base.size, Image.LANCZOS)
+
+        # Apply opacity to the reference overlay
+        alpha_factor = opacity / 100.0
+        # Create a copy of ref with adjusted alpha
+        ref_arr = np.array(ref).copy()
+        ref_arr[:, :, 3] = (ref_arr[:, :, 3] * alpha_factor).astype(np.uint8)
+        ref_overlay = Image.fromarray(ref_arr, "RGBA")
+
+        # Composite: base with ref on top
+        result = base.copy()
+        result = Image.alpha_composite(result, ref_overlay)
+
+        return result
+
     # ─── Background Color ───────────────────────────────────────────────
 
     def _get_effective_bg_color(self):
         """Get the effective background color for the correction."""
-        if self._bg_color_override is not None:
-            return self._bg_color_override
-
         name = self._bg_color_var.get()
-        if name == "Average" and self._source_image is not None:
-            return self._compute_average_color()
+
+        if name == "Custom" and self._bg_color_override is not None:
+            return self._bg_color_override
 
         color = BG_COLORS.get(name, (0, 0, 0, 0))
         if color is None:
-            return self._compute_average_color()
+            # "Custom" selected but no override yet — default to transparent
+            return (0, 0, 0, 0)
         return color
 
     def _compute_average_color(self):
@@ -541,7 +706,15 @@ class GeometryCorrectionPanel:
         if not self._preview_var.get():
             return
 
-        if len(self.points) < 2 or self._source_image is None:
+        if self._source_image is None:
+            self._preview_result = None
+            self._on_preview_ready(None)
+            self._update_status("")
+            return
+
+        # Need either 2+ points or valid manual coefficients
+        coeffs = self._get_coeffs_from_inputs()
+        if coeffs is None:
             self._preview_result = None
             self._on_preview_ready(None)
             self._update_status("")
@@ -563,6 +736,11 @@ class GeometryCorrectionPanel:
         offset_mode = self._offset_mode_var.get().lower()
         resample_method = self._resample_var.get()
         bg_color = self._get_effective_bg_color()
+        coeffs_override = self._get_coeffs_from_inputs()
+
+        if coeffs_override is None:
+            self._update_status("Invalid coefficients")
+            return
 
         self._update_status("Processing...")
 
@@ -572,6 +750,7 @@ class GeometryCorrectionPanel:
                 offset_mode=offset_mode,
                 resample_method=resample_method,
                 bg_color=bg_color,
+                coeffs_override=coeffs_override,
                 cancel_event=cancel_event
             )
             if not cancel_event.is_set() and result is not None:
@@ -592,8 +771,11 @@ class GeometryCorrectionPanel:
         self._cancel_processing()
         if self._preview_result is not None:
             self._on_apply(self._preview_result)
-        elif len(self.points) >= 2 and self._source_image is not None:
-            # Compute synchronously
+        elif self._source_image is not None:
+            # Compute synchronously using current coefficient inputs
+            coeffs_override = self._get_coeffs_from_inputs()
+            if coeffs_override is None:
+                return
             self._update_status("Applying...")
             offset_mode = self._offset_mode_var.get().lower()
             resample_method = self._resample_var.get()
@@ -603,6 +785,7 @@ class GeometryCorrectionPanel:
                 offset_mode=offset_mode,
                 resample_method=resample_method,
                 bg_color=bg_color,
+                coeffs_override=coeffs_override,
             )
             if result is not None:
                 self._on_apply(result)
@@ -639,6 +822,55 @@ class GeometryCorrectionPanel:
             return None
         arr = np.array(rgb)
         return tuple(arr[y, x])
+
+    def _get_bg_pick_color(self, image, x, y):
+        """Get the RGB color at (x, y), optionally averaged over a kernel area.
+
+        Used for right-click background color picking.
+        """
+        if image is None:
+            return None
+        rgb = image.convert("RGB")
+        w, h = rgb.size
+        if x < 0 or x >= w or y < 0 or y >= h:
+            return None
+        arr = np.array(rgb)
+
+        if not self._use_area_avg_var.get():
+            return tuple(arr[y, x])
+
+        # Area averaging with kernel size = 2*n + 1
+        try:
+            n = self._area_size_var.get()
+        except tk.TclError:
+            n = 2
+        radius = n
+        shape = self._area_shape_var.get()
+
+        # Compute bounding box
+        x0 = max(0, x - radius)
+        y0 = max(0, y - radius)
+        x1 = min(w, x + radius + 1)
+        y1 = min(h, y + radius + 1)
+
+        region = arr[y0:y1, x0:x1]  # (ky, kx, 3)
+
+        if shape == "Round":
+            # Build a circular mask
+            ky, kx = region.shape[:2]
+            cy, cx = (y - y0), (x - x0)
+            yy, xx = np.ogrid[:ky, :kx]
+            dist_sq = (xx - cx) ** 2 + (yy - cy) ** 2
+            mask = dist_sq <= radius * radius
+            if not np.any(mask):
+                return tuple(arr[y, x])
+            pixels = region[mask]  # (M, 3)
+        else:
+            # Square — use entire region
+            pixels = region.reshape(-1, 3)
+
+        avg = pixels.mean(axis=0).round().astype(np.uint8)
+        return tuple(avg)
 
     def _update_status(self, text):
         self._status_label.config(text=text)

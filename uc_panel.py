@@ -75,6 +75,14 @@ class UniformColorPanel:
         )
         bt_spin.pack(side=tk.LEFT, padx=4)
 
+        # Blend border pixels checkbox
+        self.blend_border_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(
+            panel, text="Blend border pixels",
+            variable=self.blend_border_var,
+            command=self._schedule_preview
+        ).pack(padx=8, anchor=tk.W)
+
         # ─── Global Threshold ───────────────────────────────────────────
         sep_thresh = ttk.Separator(panel, orient=tk.HORIZONTAL)
         sep_thresh.pack(fill=tk.X, padx=8, pady=(8, 4))
@@ -99,7 +107,7 @@ class UniformColorPanel:
         gf_frame = tk.Frame(panel)
         gf_frame.pack(fill=tk.X, padx=8, pady=4)
         tk.Label(gf_frame, text="Global Feathering:").pack(side=tk.LEFT)
-        self.global_feather_var = tk.IntVar(value=2)
+        self.global_feather_var = tk.IntVar(value=0)
         gf_spin = tk.Spinbox(
             gf_frame, from_=-50, to=50, width=5, textvariable=self.global_feather_var
         )
@@ -368,6 +376,7 @@ class UniformColorPanel:
             blend_threshold = 30
 
         distance_metric = self.distance_metric_var.get()
+        blend_border = self.blend_border_var.get()
 
         points_snapshot = copy.deepcopy(self.points)
 
@@ -397,6 +406,7 @@ class UniformColorPanel:
             result = process_uniform_color(
                 source_image, points_snapshot, blend_threshold,
                 distance_metric=distance_metric,
+                blend_border=blend_border,
                 cancel_event=cancel_event
             )
             if not cancel_event.is_set() and result is not None:

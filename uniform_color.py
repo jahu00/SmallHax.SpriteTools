@@ -18,20 +18,23 @@ from bg_removal import (
 
 
 def process_uniform_color(image, points, blend_threshold, distance_metric="RGB",
-                          cancel_event=None):
+                          blend_border=True, cancel_event=None):
     """Replace masked regions with their per-mask averaged color.
 
     Each point produces its own flood-fill mask. The average color is computed
     independently for each mask, and pixels within that mask are replaced
     with that mask's average. Border pixels (distance > blend_threshold from
-    the seed color) get a smooth blend.
+    the seed color) get a smooth blend if blend_border is enabled, otherwise
+    they are left unchanged.
 
     Args:
         image: PIL Image (RGB or RGBA).
         points: List of dicts {x, y, threshold, feathering}.
         blend_threshold: Distance below which pixels are fully replaced.
-            Pixels beyond this get a gradual blend.
+            Pixels beyond this get a gradual blend (if blend_border=True).
         distance_metric: 'RGB' or 'LAB' for distance computation.
+        blend_border: If True, pixels outside blend_threshold get a smooth
+            blend. If False, only pixels within threshold are replaced.
         cancel_event: Optional threading.Event for cancellation.
 
     Returns:
@@ -58,14 +61,16 @@ def process_uniform_color(image, points, blend_threshold, distance_metric="RGB",
         if cancel_event and cancel_event.is_set():
             return None
 
-        pt_mask = create_magic_wand_mask(
+        # Get the raw flood-fill mask (before feathering) for averaging
+        raw_mask = create_magic_wand_mask(
             rgb_array.astype(np.uint8), (pt["x"], pt["y"]), pt["threshold"],
             cancel_event
         )
-        if pt_mask is None:
+        if raw_mask is None:
             return None
 
-        pt_mask = feather_mask(pt_mask, pt["feathering"])
+        # Apply feathering to get the full replacement region
+        pt_mask = feather_mask(raw_mask, pt["feathering"])
 
         if cancel_event and cancel_event.is_set():
             return None
@@ -76,15 +81,26 @@ def process_uniform_color(image, points, blend_threshold, distance_metric="RGB",
             continue
         seed_color = rgb_array[py, px]  # (3,)
 
-        # Get pixels in this mask
+        # Compute average color:
+        # - If feathering is negative (erode), use the eroded mask (which is pt_mask)
+        # - Otherwise use the raw (unfeathered) mask
+        if pt["feathering"] < 0:
+            avg_mask = pt_mask
+        else:
+            avg_mask = raw_mask
+
+        avg_indices = np.where(avg_mask)
+        if avg_indices[0].size == 0:
+            continue
+        avg_pixels = rgb_array[avg_indices[0], avg_indices[1]]
+        avg_color = avg_pixels.mean(axis=0)  # (3,)
+
+        # Get pixels in the full (feathered) mask for replacement
         mask_indices = np.where(pt_mask)
         if mask_indices[0].size == 0:
             continue
 
         masked_pixels = rgb_array[mask_indices[0], mask_indices[1]]  # (M, 3)
-
-        # Compute the average color for this mask
-        avg_color = masked_pixels.mean(axis=0)  # (3,)
 
         # Compute distances from each masked pixel to the seed color
         distances = compute_distance(masked_pixels, seed_color, distance_metric)
@@ -102,7 +118,7 @@ def process_uniform_color(image, points, blend_threshold, distance_metric="RGB",
             result_rgb[fr_rows, fr_cols] = avg_color
 
         # Partial blend pixels
-        if np.any(partial):
+        if np.any(partial) and blend_border:
             p_rows = mask_indices[0][partial]
             p_cols = mask_indices[1][partial]
             p_pixels = masked_pixels[partial]  # (P, 3)

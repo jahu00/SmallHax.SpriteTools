@@ -102,6 +102,14 @@ class BgRemovalPanel:
         )
         at_spin.pack(side=tk.LEFT, padx=4)
 
+        # Blend border pixels checkbox
+        self.blend_border_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(
+            panel, text="Blend border pixels",
+            variable=self.blend_border_var,
+            command=self._schedule_preview
+        ).pack(padx=8, anchor=tk.W)
+
         # ─── Global Threshold ───────────────────────────────────────────
         sep_thresh = ttk.Separator(panel, orient=tk.HORIZONTAL)
         sep_thresh.pack(fill=tk.X, padx=8, pady=(8, 4))
@@ -445,6 +453,7 @@ class BgRemovalPanel:
         color_space = self.cs_var.get()
         is_color_correction = self.color_correction_var.get()
         distance_metric = self.distance_metric_var.get()
+        blend_border = self.blend_border_var.get()
 
         points_snapshot = copy.deepcopy(self.points)
 
@@ -475,11 +484,13 @@ class BgRemovalPanel:
                 result = process_color_correction(
                     source_image, points_snapshot, alpha_threshold,
                     distance_metric=distance_metric,
+                    blend_border=blend_border,
                     cancel_event=cancel_event
                 )
             else:
                 result = process_background_removal(
                     source_image, points_snapshot, alpha_threshold, color_space,
+                    blend_border=blend_border,
                     cancel_event=cancel_event
                 )
             if not cancel_event.is_set() and result is not None:

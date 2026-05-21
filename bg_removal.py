@@ -322,12 +322,14 @@ def feather_mask(mask, amount):
 # ─── Main Processing Function ───────────────────────────────────────────────
 
 def process_background_removal(image, points, alpha_threshold, color_space,
-                               cancel_event=None):
+                               blend_border=True, cancel_event=None):
     """
     Process background removal using vectorized numpy operations.
     - points: list of dicts {x, y, threshold, feathering}
     - alpha_threshold: threshold for deciding full-transparent vs partial transparency
     - color_space: 'HSL', 'HSV', or 'HSI'
+    - blend_border: if True, pixels outside alpha_threshold get partial transparency;
+      if False, only pixels within threshold are made transparent
     - cancel_event: threading.Event, if set the processing aborts and returns None
     Returns RGBA Image with background removed, or None if cancelled.
     """
@@ -414,7 +416,7 @@ def process_background_removal(image, points, alpha_threshold, color_space,
     result[full_trans_indices[0], full_trans_indices[1]] = [0, 0, 0, 0]
 
     # Partial transparency pixels — need color space conversion
-    if np.any(partial_mask):
+    if np.any(partial_mask) and blend_border:
         partial_indices = (mask_indices[0][partial_mask], mask_indices[1][partial_mask])
         partial_rgb = rgb_array[partial_indices[0], partial_indices[1]]  # (P, 3)
 
@@ -514,17 +516,20 @@ def compute_distance(pixels, seed_color, metric="RGB"):
 
 
 def process_color_correction(image, points, alpha_threshold, distance_metric="RGB",
-                             cancel_event=None):
+                             blend_border=True, cancel_event=None):
     """
     Color correction background removal mode.
     Processes each mask independently. For pixels outside alpha_threshold,
-    uses sqrt(distance) as alpha and subtracts background color contribution.
+    uses sqrt(distance) as alpha and subtracts background color contribution
+    (if blend_border is True).
 
     Args:
         image: PIL Image
         points: list of dicts {x, y, threshold, feathering}
         alpha_threshold: distance below which pixels are fully transparent
         distance_metric: 'RGB' or 'LAB'
+        blend_border: if True, pixels outside alpha_threshold get partial
+            transparency with color correction; if False, they are left opaque
         cancel_event: threading.Event for cancellation
     Returns:
         RGBA PIL Image, or None if cancelled.
@@ -586,7 +591,7 @@ def process_color_correction(image, points, alpha_threshold, distance_metric="RG
             result_rgb[ft_rows, ft_cols] = 0
 
         # ─── Partial pixels: color correction ───────────────────────────
-        if np.any(partial):
+        if np.any(partial) and blend_border:
             p_rows = mask_indices[0][partial]
             p_cols = mask_indices[1][partial]
             p_pixels = masked_pixels[partial]  # (P, 3)

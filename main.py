@@ -75,17 +75,23 @@ class ImageEditor:
         )
         self.bg_remove_btn.pack(side=tk.LEFT, padx=2, pady=2)
 
+        self.uc_btn = tk.Button(
+            toolbar, text="🎯 Uniform Color", relief=tk.RAISED,
+            command=self._select_uniform_color_tool
+        )
+        self.uc_btn.pack(side=tk.LEFT, padx=2, pady=2)
+
         self.cc_btn = tk.Button(
             toolbar, text="🎨 Color Correct", relief=tk.RAISED,
             command=self._select_color_correct_tool
         )
         self.cc_btn.pack(side=tk.LEFT, padx=2, pady=2)
 
-        self.crop_btn = tk.Button(
-            toolbar, text="✂ Sprite Crop", relief=tk.RAISED,
-            command=self._select_sprite_crop_tool
+        self.gc_btn = tk.Button(
+            toolbar, text="📐 Geometry", relief=tk.RAISED,
+            command=self._select_geometry_correct_tool
         )
-        self.crop_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        self.gc_btn.pack(side=tk.LEFT, padx=2, pady=2)
 
         self.scale_btn = tk.Button(
             toolbar, text="⇲ Scale", relief=tk.RAISED,
@@ -93,17 +99,11 @@ class ImageEditor:
         )
         self.scale_btn.pack(side=tk.LEFT, padx=2, pady=2)
 
-        self.uc_btn = tk.Button(
-            toolbar, text="🎯 Uniform Color", relief=tk.RAISED,
-            command=self._select_uniform_color_tool
+        self.crop_btn = tk.Button(
+            toolbar, text="✂ Sprite Crop", relief=tk.RAISED,
+            command=self._select_sprite_crop_tool
         )
-        self.uc_btn.pack(side=tk.LEFT, padx=2, pady=2)
-
-        self.gc_btn = tk.Button(
-            toolbar, text="📐 Geometry", relief=tk.RAISED,
-            command=self._select_geometry_correct_tool
-        )
-        self.gc_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        self.crop_btn.pack(side=tk.LEFT, padx=2, pady=2)
 
         # Zoom indicator label (click to toggle 100% / fit)
         self.zoom_label = tk.Label(toolbar, text="100%", padx=8, cursor="hand2")

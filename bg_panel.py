@@ -202,6 +202,14 @@ class BgRemovalPanel:
         self.status_label = tk.Label(panel, text="", font=("", 8), fg="gray")
         self.status_label.pack(padx=8, anchor=tk.W)
 
+        # Preview checkbox
+        self._preview_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(
+            panel, text="Live preview",
+            variable=self._preview_var,
+            command=self._on_preview_toggled
+        ).pack(padx=8, anchor=tk.W)
+
         # Bottom buttons
         btn_frame = tk.Frame(panel)
         btn_frame.pack(fill=tk.X, padx=8, pady=8)
@@ -422,12 +430,22 @@ class BgRemovalPanel:
 
     # ─── Debounced Preview ──────────────────────────────────────────────
 
+    def _on_preview_toggled(self):
+        if self._preview_var.get():
+            self._schedule_preview()
+        else:
+            self._cancel_processing()
+            self._on_preview_ready(None)
+
     def _schedule_preview(self):
         if self._debounce_id is not None:
             self.parent_frame.after_cancel(self._debounce_id)
             self._debounce_id = None
 
         self._cancel_processing()
+
+        if not self._preview_var.get():
+            return
 
         if not self.points or self._source_image is None:
             self._preview_result = None

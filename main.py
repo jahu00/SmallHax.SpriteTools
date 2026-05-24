@@ -9,6 +9,7 @@ from PIL import Image
 from bg_panel import BgRemovalPanel
 from cc_panel import ColorCorrectionPanel
 from crop_panel import SpriteCropPanel
+from se_panel import SpriteEditPanel
 from scale_panel import ScalePanel
 from uc_panel import UniformColorPanel
 from gc_panel import GeometryCorrectionPanel
@@ -24,6 +25,7 @@ class ImageEditor:
     TOOL_BG_REMOVE = "bg_remove"
     TOOL_COLOR_CORRECT = "color_correct"
     TOOL_SPRITE_CROP = "sprite_crop"
+    TOOL_SPRITE_EDIT = "sprite_edit"
     TOOL_SCALE = "scale"
     TOOL_UNIFORM_COLOR = "uniform_color"
     TOOL_GEOMETRY_CORRECT = "geometry_correct"
@@ -105,6 +107,12 @@ class ImageEditor:
         )
         self.crop_btn.pack(side=tk.LEFT, padx=2, pady=2)
 
+        self.se_btn = tk.Button(
+            toolbar, text="🔀 Sprite Edit", relief=tk.RAISED,
+            command=self._select_sprite_edit_tool
+        )
+        self.se_btn.pack(side=tk.LEFT, padx=2, pady=2)
+
         # Zoom indicator label (click to toggle 100% / fit)
         self.zoom_label = tk.Label(toolbar, text="100%", padx=8, cursor="hand2")
         self.zoom_label.pack(side=tk.RIGHT, padx=4, pady=2)
@@ -184,6 +192,16 @@ class ImageEditor:
             on_overlay_changed=self._on_crop_overlay_changed,
         )
 
+        # ─── Side panel: Sprite edit (hidden by default) ────────────────
+        self.se_side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
+        self.se_panel = SpriteEditPanel(
+            self.se_side_panel,
+            on_apply=self._on_se_apply,
+            on_cancel=self._on_se_cancel,
+            on_overlay_changed=self._on_se_overlay_changed,
+            on_preview_changed=self._on_se_preview_changed,
+        )
+
         # ─── Side panel: Scale (hidden by default) ──────────────────────
         self.scale_side_panel = tk.Frame(self.main_frame, width=300, bd=1, relief=tk.SUNKEN)
         self.scale_panel = ScalePanel(
@@ -242,6 +260,7 @@ class ImageEditor:
         self.bg_remove_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
+        self.se_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
         self.uc_btn.config(relief=tk.RAISED)
         self.gc_btn.config(relief=tk.RAISED)
@@ -263,6 +282,7 @@ class ImageEditor:
         self.bg_remove_btn.config(relief=tk.SUNKEN)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
+        self.se_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
         self.uc_btn.config(relief=tk.RAISED)
         self.gc_btn.config(relief=tk.RAISED)
@@ -286,6 +306,7 @@ class ImageEditor:
         self.bg_remove_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.SUNKEN)
         self.crop_btn.config(relief=tk.RAISED)
+        self.se_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
         self.uc_btn.config(relief=tk.RAISED)
         self.gc_btn.config(relief=tk.RAISED)
@@ -327,6 +348,7 @@ class ImageEditor:
         self.side_panel.pack_forget()
         self.cc_side_panel.pack_forget()
         self.crop_side_panel.pack_forget()
+        self.se_side_panel.pack_forget()
         self.scale_side_panel.pack_forget()
         self.uc_side_panel.pack_forget()
         self.gc_side_panel.pack_forget()
@@ -400,6 +422,7 @@ class ImageEditor:
         self.bg_remove_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.SUNKEN)
+        self.se_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
         self.uc_btn.config(relief=tk.RAISED)
         self.gc_btn.config(relief=tk.RAISED)
@@ -442,6 +465,55 @@ class ImageEditor:
         self.crop_panel.on_mouse_drag(img_x, img_y)
         self.viewer.render()
 
+    # ─── Sprite Edit Tool ───────────────────────────────────────────────
+
+    def _select_sprite_edit_tool(self):
+        if self.original_image is None:
+            messagebox.showinfo("Info", "Open an image first.")
+            return
+        self.active_tool = self.TOOL_SPRITE_EDIT
+        self.cursor_btn.config(relief=tk.RAISED)
+        self.bg_remove_btn.config(relief=tk.RAISED)
+        self.cc_btn.config(relief=tk.RAISED)
+        self.crop_btn.config(relief=tk.RAISED)
+        self.se_btn.config(relief=tk.SUNKEN)
+        self.scale_btn.config(relief=tk.RAISED)
+        self.uc_btn.config(relief=tk.RAISED)
+        self.gc_btn.config(relief=tk.RAISED)
+        self._hide_all_panels()
+        self._show_single_viewer()
+        self.preview_image = None
+        self.se_panel.reset()
+        self.se_panel.set_source_image(self.original_image)
+        self.se_side_panel.pack(side=tk.RIGHT, fill=tk.Y)
+        # In sprite edit mode, left-click pans
+        self.viewer.set_left_click_pans(True)
+        self.viewer.set_on_left_click(None)
+        self.viewer.set_on_left_drag(None)
+        self._update_viewer_image()
+
+    def _on_se_apply(self, image):
+        """Called when user applies the sprite edit."""
+        self.original_image = image.copy()
+        self.preview_image = None
+        self.se_panel.reset()
+        self._select_cursor_tool()
+
+    def _on_se_cancel(self):
+        """Called when user cancels sprite edit."""
+        self.preview_image = None
+        self.se_panel.reset()
+        self._select_cursor_tool()
+
+    def _on_se_overlay_changed(self):
+        """Called when sprite edit parameters change — re-render to update overlay."""
+        self.viewer.render()
+
+    def _on_se_preview_changed(self, image):
+        """Called when sprite edit preview toggle/content changes."""
+        self.preview_image = image
+        self._update_viewer_image()
+
     # ─── Scale Tool ─────────────────────────────────────────────────────
 
     def _select_scale_tool(self):
@@ -453,6 +525,7 @@ class ImageEditor:
         self.bg_remove_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
+        self.se_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.SUNKEN)
         self.uc_btn.config(relief=tk.RAISED)
         self.gc_btn.config(relief=tk.RAISED)
@@ -497,6 +570,7 @@ class ImageEditor:
         self.bg_remove_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
+        self.se_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
         self.uc_btn.config(relief=tk.SUNKEN)
         self.gc_btn.config(relief=tk.RAISED)
@@ -545,6 +619,7 @@ class ImageEditor:
         self.bg_remove_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
+        self.se_btn.config(relief=tk.RAISED)
         self.scale_btn.config(relief=tk.RAISED)
         self.uc_btn.config(relief=tk.RAISED)
         self.gc_btn.config(relief=tk.SUNKEN)
@@ -810,6 +885,8 @@ class ImageEditor:
                 )
         elif self.active_tool == self.TOOL_SPRITE_CROP:
             self.crop_panel.draw_overlay(canvas, draw_x, draw_y, zoom_level)
+        elif self.active_tool == self.TOOL_SPRITE_EDIT:
+            self.se_panel.draw_overlay(canvas, draw_x, draw_y, zoom_level)
 
     def _bg_add_point(self, img_x, img_y, event):
         """Handle left-click in BG remove mode to add a sample point."""

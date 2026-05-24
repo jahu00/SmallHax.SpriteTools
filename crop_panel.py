@@ -174,9 +174,13 @@ class SpriteCropPanel:
         )
         self._tile_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
 
-        # Preview canvas (scales to fit panel width)
-        self._preview_canvas = tk.Canvas(panel, height=150, bg="#3c3c3c", highlightthickness=0)
-        self._preview_canvas.pack(fill=tk.X, padx=8, pady=4)
+        # Preview canvas (fixed square)
+        self._preview_size = 200
+        self._preview_canvas = tk.Canvas(
+            panel, width=self._preview_size, height=self._preview_size,
+            bg="#3c3c3c", highlightthickness=0
+        )
+        self._preview_canvas.pack(padx=8, pady=4)
 
         # ─── Bottom Buttons ─────────────────────────────────────────────
         btn_frame = tk.Frame(panel)
@@ -192,8 +196,15 @@ class SpriteCropPanel:
     # ─── Public Interface ───────────────────────────────────────────────
 
     def set_source_image(self, image):
-        """Set the source image to crop."""
+        """Set the source image to crop. Resets margins to defaults."""
         self._source_image = image
+        self._margin_top_var.set(0)
+        self._margin_bottom_var.set(0)
+        self._margin_left_var.set(0)
+        self._margin_right_var.set(0)
+        self._inner_h_var.set(0)
+        self._inner_v_var.set(0)
+        self._tile_index_var.set(0)
         self._on_params_changed()
 
     def reset(self):
@@ -557,7 +568,7 @@ class SpriteCropPanel:
             self._tile_index_var.set(0)
 
     def _update_preview(self):
-        """Update the tile preview canvas."""
+        """Update the tile preview canvas with a fixed square area."""
         self._preview_canvas.delete("all")
         self._preview_tk_image = None
 
@@ -580,38 +591,38 @@ class SpriteCropPanel:
         if tile_img is None:
             return
 
-        # Scale to fit the preview canvas width
-        canvas_w = self._preview_canvas.winfo_width()
-        if canvas_w <= 1:
-            canvas_w = 260  # fallback
+        # Fit tile into the fixed square preview area, centered, keeping aspect ratio
+        canvas_size = self._preview_size
+        tile_w, tile_h = tile_img.size
 
-        scale = canvas_w / tile_img.width if tile_img.width > 0 else 1
-        preview_h = int(tile_img.height * scale)
-        if preview_h <= 0:
-            preview_h = 1
+        if tile_w <= 0 or tile_h <= 0:
+            return
 
-        # Cap height
-        max_h = 200
-        if preview_h > max_h:
-            scale = max_h / tile_img.height
-            preview_h = max_h
+        scale_x = canvas_size / tile_w
+        scale_y = canvas_size / tile_h
+        scale = min(scale_x, scale_y)
 
-        preview_w = int(tile_img.width * scale)
-        if preview_w <= 0:
-            preview_w = 1
+        preview_w = max(1, int(tile_w * scale))
+        preview_h = max(1, int(tile_h * scale))
 
-        resample = Image.LANCZOS if scale < 1.0 else Image.NEAREST
+        # Nearest neighbour when upscaling, Lanczos when downscaling
+        resample = Image.NEAREST if scale >= 1.0 else Image.LANCZOS
         preview_img = tile_img.resize((preview_w, preview_h), resample)
 
-        # Handle RGBA
+        # Handle RGBA — composite over dark background
         if preview_img.mode == "RGBA":
             bg = Image.new("RGB", (preview_w, preview_h), (60, 60, 60))
             bg.paste(preview_img, mask=preview_img.split()[3])
             preview_img = bg
 
-        self._preview_canvas.config(height=preview_h)
         self._preview_tk_image = ImageTk.PhotoImage(preview_img)
-        self._preview_canvas.create_image(0, 0, anchor=tk.NW, image=self._preview_tk_image)
+
+        # Center the image in the canvas
+        offset_x = (canvas_size - preview_w) // 2
+        offset_y = (canvas_size - preview_h) // 2
+        self._preview_canvas.create_image(
+            offset_x, offset_y, anchor=tk.NW, image=self._preview_tk_image
+        )
 
     # ─── Apply / Cancel ─────────────────────────────────────────────────
 

@@ -10,6 +10,7 @@ from bg_panel import BgRemovalPanel
 from cc_panel import ColorCorrectionPanel
 from crop_panel import SpriteCropPanel
 from se_panel import SpriteEditPanel
+from ol_panel import OutlinePanel
 from scale_panel import ScalePanel
 from uc_panel import UniformColorPanel
 from gc_panel import GeometryCorrectionPanel
@@ -26,6 +27,7 @@ class ImageEditor:
     TOOL_COLOR_CORRECT = "color_correct"
     TOOL_SPRITE_CROP = "sprite_crop"
     TOOL_SPRITE_EDIT = "sprite_edit"
+    TOOL_OUTLINE = "outline"
     TOOL_SCALE = "scale"
     TOOL_UNIFORM_COLOR = "uniform_color"
     TOOL_GEOMETRY_CORRECT = "geometry_correct"
@@ -76,6 +78,11 @@ class ImageEditor:
             toolbar, text="🔲 BG Remove", relief=tk.RAISED, command=self._select_bg_remove_tool
         )
         self.bg_remove_btn.pack(side=tk.LEFT, padx=2, pady=2)
+
+        self.outline_btn = tk.Button(
+            toolbar, text="⭕ Outline", relief=tk.RAISED, command=self._select_outline_tool
+        )
+        self.outline_btn.pack(side=tk.LEFT, padx=2, pady=2)
 
         self.uc_btn = tk.Button(
             toolbar, text="🎯 Uniform Color", relief=tk.RAISED,
@@ -173,6 +180,16 @@ class ImageEditor:
             on_status_changed=self._set_status,
         )
 
+        # ─── Side panel: Outline (hidden by default) ────────────────────
+        self.ol_side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
+        self.ol_panel = OutlinePanel(
+            self.ol_side_panel,
+            on_preview_ready=self._on_ol_preview_ready,
+            on_apply=self._on_ol_apply,
+            on_cancel=self._on_ol_cancel,
+            on_status_changed=self._set_status,
+        )
+
         # ─── Side panel: Color correction (hidden by default) ───────────
         self.cc_side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
         self.cc_panel = ColorCorrectionPanel(
@@ -258,6 +275,7 @@ class ImageEditor:
         self.active_tool = self.TOOL_CURSOR
         self.cursor_btn.config(relief=tk.SUNKEN)
         self.bg_remove_btn.config(relief=tk.RAISED)
+        self.outline_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
         self.se_btn.config(relief=tk.RAISED)
@@ -281,6 +299,7 @@ class ImageEditor:
         self.active_tool = self.TOOL_BG_REMOVE
         self.cursor_btn.config(relief=tk.RAISED)
         self.bg_remove_btn.config(relief=tk.SUNKEN)
+        self.outline_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
         self.se_btn.config(relief=tk.RAISED)
@@ -305,6 +324,7 @@ class ImageEditor:
         self.active_tool = self.TOOL_COLOR_CORRECT
         self.cursor_btn.config(relief=tk.RAISED)
         self.bg_remove_btn.config(relief=tk.RAISED)
+        self.outline_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.SUNKEN)
         self.crop_btn.config(relief=tk.RAISED)
         self.se_btn.config(relief=tk.RAISED)
@@ -347,6 +367,7 @@ class ImageEditor:
 
     def _hide_all_panels(self):
         self.side_panel.pack_forget()
+        self.ol_side_panel.pack_forget()
         self.cc_side_panel.pack_forget()
         self.crop_side_panel.pack_forget()
         self.se_side_panel.pack_forget()
@@ -372,6 +393,57 @@ class ImageEditor:
         """Called when user cancels background removal."""
         self.preview_image = None
         self.bg_panel.reset()
+        self._select_cursor_tool()
+
+    # ─── Outline Tool ───────────────────────────────────────────────────
+
+    def _select_outline_tool(self):
+        if self.original_image is None:
+            messagebox.showinfo("Info", "Open an image first.")
+            return
+        self.active_tool = self.TOOL_OUTLINE
+        self.cursor_btn.config(relief=tk.RAISED)
+        self.bg_remove_btn.config(relief=tk.RAISED)
+        self.outline_btn.config(relief=tk.SUNKEN)
+        self.cc_btn.config(relief=tk.RAISED)
+        self.crop_btn.config(relief=tk.RAISED)
+        self.se_btn.config(relief=tk.RAISED)
+        self.scale_btn.config(relief=tk.RAISED)
+        self.uc_btn.config(relief=tk.RAISED)
+        self.gc_btn.config(relief=tk.RAISED)
+        self._hide_all_panels()
+        self._show_single_viewer()
+        self.preview_image = None
+        self.ol_panel.reset()
+        self.ol_panel.set_source_image(self.original_image)
+        self.ol_side_panel.pack(side=tk.RIGHT, fill=tk.Y)
+        # In outline mode, left-click adds background points
+        self.viewer.set_left_click_pans(False)
+        self.viewer.set_on_left_click(self._ol_add_point)
+        self.viewer.set_on_left_drag(None)
+        self.viewer.set_on_left_release(None)
+        self._update_viewer_image()
+
+    def _ol_add_point(self, img_x, img_y, event):
+        """Handle left-click in outline mode to add a background sample point."""
+        self.ol_panel.add_point(img_x, img_y)
+
+    def _on_ol_preview_ready(self, image):
+        """Called from OutlinePanel when preview is computed."""
+        self.preview_image = image
+        self._update_viewer_image()
+
+    def _on_ol_apply(self, image):
+        """Called when user applies the outline."""
+        self.original_image = image.copy()
+        self.preview_image = None
+        self.ol_panel.reset()
+        self._select_cursor_tool()
+
+    def _on_ol_cancel(self):
+        """Called when user cancels outline."""
+        self.preview_image = None
+        self.ol_panel.reset()
         self._select_cursor_tool()
 
     # ─── Color Correction Callbacks ─────────────────────────────────────
@@ -421,6 +493,7 @@ class ImageEditor:
         self.active_tool = self.TOOL_SPRITE_CROP
         self.cursor_btn.config(relief=tk.RAISED)
         self.bg_remove_btn.config(relief=tk.RAISED)
+        self.outline_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.SUNKEN)
         self.se_btn.config(relief=tk.RAISED)
@@ -480,6 +553,7 @@ class ImageEditor:
         self.active_tool = self.TOOL_SPRITE_EDIT
         self.cursor_btn.config(relief=tk.RAISED)
         self.bg_remove_btn.config(relief=tk.RAISED)
+        self.outline_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
         self.se_btn.config(relief=tk.SUNKEN)
@@ -529,6 +603,7 @@ class ImageEditor:
         self.active_tool = self.TOOL_SCALE
         self.cursor_btn.config(relief=tk.RAISED)
         self.bg_remove_btn.config(relief=tk.RAISED)
+        self.outline_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
         self.se_btn.config(relief=tk.RAISED)
@@ -574,6 +649,7 @@ class ImageEditor:
         self.active_tool = self.TOOL_UNIFORM_COLOR
         self.cursor_btn.config(relief=tk.RAISED)
         self.bg_remove_btn.config(relief=tk.RAISED)
+        self.outline_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
         self.se_btn.config(relief=tk.RAISED)
@@ -623,6 +699,7 @@ class ImageEditor:
         self.active_tool = self.TOOL_GEOMETRY_CORRECT
         self.cursor_btn.config(relief=tk.RAISED)
         self.bg_remove_btn.config(relief=tk.RAISED)
+        self.outline_btn.config(relief=tk.RAISED)
         self.cc_btn.config(relief=tk.RAISED)
         self.crop_btn.config(relief=tk.RAISED)
         self.se_btn.config(relief=tk.RAISED)
@@ -845,6 +922,8 @@ class ImageEditor:
 
     def _get_bg_color(self):
         """Return the background color for RGBA compositing, or None."""
+        if self.active_tool == self.TOOL_OUTLINE:
+            return self.ol_panel.get_preview_bg_color()
         return self.bg_panel.get_preview_bg_color()
 
     def _on_zoom_changed(self, zoom_level):
@@ -894,6 +973,19 @@ class ImageEditor:
         elif self.active_tool == self.TOOL_SPRITE_EDIT:
             if not self.se_panel._preview_output_var.get():
                 self.se_panel.draw_overlay(canvas, draw_x, draw_y, zoom_level)
+        elif self.active_tool == self.TOOL_OUTLINE:
+            for i, pt in enumerate(self.ol_panel.points):
+                px = draw_x + (pt["x"] + 0.5) * zoom_level
+                py = draw_y + (pt["y"] + 0.5) * zoom_level
+                r = 5
+                canvas.create_oval(
+                    px - r, py - r, px + r, py + r,
+                    outline="lime", width=2
+                )
+                canvas.create_text(
+                    px + r + 3, py, text=str(i + 1),
+                    fill="lime", anchor=tk.W, font=("", 8)
+                )
 
     def _bg_add_point(self, img_x, img_y, event):
         """Handle left-click in BG remove mode to add a sample point."""

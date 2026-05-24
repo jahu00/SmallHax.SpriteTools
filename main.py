@@ -271,6 +271,7 @@ class ImageEditor:
         self.viewer.set_left_click_pans(True)
         self.viewer.set_on_left_click(None)
         self.viewer.set_on_left_drag(None)
+        self.viewer.set_on_left_release(None)
         self._update_viewer_image()
 
     def _select_bg_remove_tool(self):
@@ -436,6 +437,7 @@ class ImageEditor:
         self.viewer.set_left_click_pans(False)
         self.viewer.set_on_left_click(self._crop_on_click)
         self.viewer.set_on_left_drag(self._crop_on_drag)
+        self.viewer.set_on_left_release(self._crop_on_release)
         self._update_viewer_image()
 
     def _on_crop_apply(self, image):
@@ -464,6 +466,10 @@ class ImageEditor:
         """Handle left-drag in sprite crop mode — move the active handle."""
         self.crop_panel.on_mouse_drag(img_x, img_y)
         self.viewer.render()
+
+    def _crop_on_release(self, event):
+        """Handle left-release in sprite crop mode — clear the active handle."""
+        self.crop_panel.on_mouse_release()
 
     # ─── Sprite Edit Tool ───────────────────────────────────────────────
 
@@ -886,7 +892,8 @@ class ImageEditor:
         elif self.active_tool == self.TOOL_SPRITE_CROP:
             self.crop_panel.draw_overlay(canvas, draw_x, draw_y, zoom_level)
         elif self.active_tool == self.TOOL_SPRITE_EDIT:
-            self.se_panel.draw_overlay(canvas, draw_x, draw_y, zoom_level)
+            if not self.se_panel._preview_output_var.get():
+                self.se_panel.draw_overlay(canvas, draw_x, draw_y, zoom_level)
 
     def _bg_add_point(self, img_x, img_y, event):
         """Handle left-click in BG remove mode to add a sample point."""

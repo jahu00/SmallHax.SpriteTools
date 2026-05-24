@@ -82,6 +82,7 @@ class ImageViewer(tk.Frame):
         # Callbacks
         self._on_left_click = None
         self._on_left_drag = None
+        self._on_left_release = None
         self._on_draw_overlay = None
         self._on_zoom_changed = None
 
@@ -152,6 +153,10 @@ class ImageViewer(tk.Frame):
     def set_on_left_drag(self, callback):
         """Set callback for left-drag: callback(img_x, img_y, event)."""
         self._on_left_drag = callback
+
+    def set_on_left_release(self, callback):
+        """Set callback for left-button release: callback(event)."""
+        self._on_left_release = callback
 
     def set_on_draw_overlay(self, callback):
         """Set callback for drawing overlays after the image renders.
@@ -303,6 +308,7 @@ class ImageViewer(tk.Frame):
         # Left click / drag
         self._canvas.bind("<ButtonPress-1>", self._on_left_press)
         self._canvas.bind("<B1-Motion>", self._on_left_motion)
+        self._canvas.bind("<ButtonRelease-1>", self._on_left_release_event)
 
         # Redraw on resize
         self._canvas.bind("<Configure>", lambda e: self.render())
@@ -389,6 +395,10 @@ class ImageViewer(tk.Frame):
             coords = self.canvas_to_image_coords(event.x, event.y)
             if coords:
                 self._on_left_drag(coords[0], coords[1], event)
+
+    def _on_left_release_event(self, event):
+        if self._on_left_release:
+            self._on_left_release(event)
 
     # ─── Internal Helpers ───────────────────────────────────────────────
 

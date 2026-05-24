@@ -290,6 +290,10 @@ class SpriteCropPanel:
                 "inner_v": self._inner_v_var.get(),
             }
 
+    def on_mouse_release(self):
+        """Handle mouse release — clear the active handle."""
+        self._active_handle = None
+
     def on_mouse_drag(self, img_x, img_y):
         """Handle mouse drag — update the value for the active handle."""
         if not self._active_handle or self._source_image is None:

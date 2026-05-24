@@ -44,6 +44,7 @@ class OutlinePanel:
         self._thickness_var.trace_add("write", lambda *_: self._schedule_preview())
         self._global_thresh_var.trace_add("write", lambda *_: self._on_global_thresh_changed())
         self._feathering_var.trace_add("write", lambda *_: self._schedule_preview())
+        self._smooth_radius_var.trace_add("write", lambda *_: self._on_smooth_radius_changed())
 
     def _build_ui(self):
         panel = self.parent_frame
@@ -112,6 +113,23 @@ class OutlinePanel:
         self._feathering_var = tk.IntVar(value=0)
         tk.Spinbox(gf_frame, from_=-50, to=50, width=5,
                    textvariable=self._feathering_var).pack(side=tk.LEFT, padx=4)
+
+        # Smoothing
+        self._smooth_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            panel, text="Smooth outline", variable=self._smooth_var,
+            command=self._on_smooth_toggled, font=("", 8)
+        ).pack(padx=8, anchor=tk.W, pady=(4, 0))
+
+        smooth_frame = tk.Frame(panel)
+        smooth_frame.pack(fill=tk.X, padx=8, pady=2)
+        tk.Label(smooth_frame, text="Radius:", font=("", 8)).pack(side=tk.LEFT)
+        self._smooth_radius_var = tk.IntVar(value=2)
+        self._smooth_radius_spin = tk.Spinbox(
+            smooth_frame, from_=1, to=50, width=4,
+            textvariable=self._smooth_radius_var, state=tk.DISABLED
+        )
+        self._smooth_radius_spin.pack(side=tk.LEFT, padx=4)
 
         # ─── Preview Background ─────────────────────────────────────────
         sep2 = ttk.Separator(panel, orient=tk.HORIZONTAL)
@@ -242,6 +260,21 @@ class OutlinePanel:
     def _on_global_thresh_changed(self):
         self._schedule_preview()
 
+    # ─── Smoothing ──────────────────────────────────────────────────────
+
+    def _on_smooth_toggled(self):
+        """Handle the smooth checkbox toggle."""
+        if self._smooth_var.get():
+            self._smooth_radius_spin.config(state=tk.NORMAL)
+        else:
+            self._smooth_radius_spin.config(state=tk.DISABLED)
+        self._schedule_preview()
+
+    def _on_smooth_radius_changed(self):
+        """Called when smooth radius changes — only trigger if smoothing is enabled."""
+        if self._smooth_var.get():
+            self._schedule_preview()
+
     # ─── Points List UI ─────────────────────────────────────────────────
 
     def _refresh_points_list(self):
@@ -345,6 +378,12 @@ class OutlinePanel:
         except tk.TclError:
             feathering = 0
 
+        smooth = self._smooth_var.get()
+        try:
+            smooth_radius = max(1, self._smooth_radius_var.get())
+        except tk.TclError:
+            smooth_radius = 2
+
         outline_color = self._outline_color
         mode = self._mode_var.get()
 
@@ -362,7 +401,8 @@ class OutlinePanel:
         def worker():
             result = compute_outline(
                 source_image, points_snapshot, thickness, outline_color,
-                mode=mode, cancel_event=cancel_event
+                mode=mode, smooth=smooth, smooth_radius=smooth_radius,
+                cancel_event=cancel_event
             )
             if not cancel_event.is_set() and result is not None:
                 self.parent_frame.after(0, lambda: self._on_worker_done(result))

@@ -3,20 +3,49 @@
 Creates an outline around the foreground of an image by:
 1. Building a background mask from user-selected sample points (flood fill)
 2. Inverting to get the foreground mask
-3. Dilating the foreground mask by a thickness value
-4. Subtracting the original foreground mask from the dilated mask to get the outline ring
-5. Filling the outline ring with a user-chosen color
-6. Compositing the outline behind or above the input image
+3. Optionally smoothing the foreground mask (Gaussian blur + threshold)
+4. Dilating the foreground mask by a thickness value
+5. Subtracting the original foreground mask from the dilated mask to get the outline ring
+6. Filling the outline ring with a user-chosen color
+7. Compositing the outline behind or above the input image
 """
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from bg_removal import create_magic_wand_mask, feather_mask, dilate_mask
 
 
+def smooth_mask(mask, radius):
+    """Smooth a boolean mask using Gaussian blur and re-threshold.
+
+    Converts the mask to a grayscale image, applies a Gaussian blur,
+    then thresholds at 50% to get a smoothed boolean mask.
+
+    Args:
+        mask: Boolean numpy array (H, W).
+        radius: Blur radius (strength). Higher = smoother.
+
+    Returns:
+        Smoothed boolean numpy array (H, W).
+    """
+    if radius <= 0:
+        return mask
+
+    # Convert bool mask to 0/255 grayscale PIL Image
+    mask_img = Image.fromarray((mask.astype(np.uint8) * 255), mode="L")
+
+    # Apply Gaussian blur
+    mask_img = mask_img.filter(ImageFilter.GaussianBlur(radius=radius))
+
+    # Threshold back to boolean at 50%
+    smoothed = np.array(mask_img) >= 128
+
+    return smoothed
+
+
 def compute_outline(image, points, thickness, outline_color, mode="behind",
-                    cancel_event=None):
+                    smooth=False, smooth_radius=2, cancel_event=None):
     """Compute an outline around the foreground of the image.
 
     Args:
@@ -25,6 +54,8 @@ def compute_outline(image, points, thickness, outline_color, mode="behind",
         thickness: Number of pixels to dilate for the outline.
         outline_color: (R, G, B) tuple for the outline color.
         mode: "behind" to place outline behind the image, "above" to place on top.
+        smooth: Whether to smooth the foreground mask before outlining.
+        smooth_radius: Gaussian blur radius for smoothing.
         cancel_event: threading.Event for cancellation.
 
     Returns:
@@ -68,6 +99,10 @@ def compute_outline(image, points, thickness, outline_color, mode="behind",
         feathering = points[0].get("feathering", 0)
         if feathering < 0:
             fg_mask = dilate_mask(fg_mask, abs(feathering))
+
+    # Optional smoothing of the foreground mask
+    if smooth and smooth_radius > 0:
+        fg_mask = smooth_mask(fg_mask, smooth_radius)
 
     # Dilate the foreground mask by thickness
     dilated_fg = dilate_mask(fg_mask, thickness)

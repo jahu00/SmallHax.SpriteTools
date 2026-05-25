@@ -90,7 +90,7 @@ class OutlinePanel:
         self._mode_var = tk.StringVar(value="behind")
         self._mode_dropdown = ttk.Combobox(
             mode_frame, textvariable=self._mode_var,
-            values=["behind", "above"], state="readonly", width=8
+            values=["behind", "above", "instead"], state="readonly", width=8
         )
         self._mode_dropdown.pack(side=tk.LEFT, padx=4)
         self._mode_dropdown.bind("<<ComboboxSelected>>", lambda e: self._schedule_preview())
@@ -130,6 +130,13 @@ class OutlinePanel:
             textvariable=self._smooth_radius_var, state=tk.DISABLED
         )
         self._smooth_radius_spin.pack(side=tk.LEFT, padx=4)
+
+        # Anti-aliasing
+        self._antialias_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            panel, text="Anti-aliasing", variable=self._antialias_var,
+            command=self._schedule_preview, font=("", 8)
+        ).pack(padx=8, anchor=tk.W, pady=(4, 0))
 
         # ─── Preview Background ─────────────────────────────────────────
         sep2 = ttk.Separator(panel, orient=tk.HORIZONTAL)
@@ -384,6 +391,8 @@ class OutlinePanel:
         except tk.TclError:
             smooth_radius = 2
 
+        antialias = self._antialias_var.get()
+
         outline_color = self._outline_color
         mode = self._mode_var.get()
 
@@ -402,7 +411,7 @@ class OutlinePanel:
             result = compute_outline(
                 source_image, points_snapshot, thickness, outline_color,
                 mode=mode, smooth=smooth, smooth_radius=smooth_radius,
-                cancel_event=cancel_event
+                antialias=antialias, cancel_event=cancel_event
             )
             if not cancel_event.is_set() and result is not None:
                 self.parent_frame.after(0, lambda: self._on_worker_done(result))

@@ -7,7 +7,7 @@ import os
 # Add project root to path so we can import sprite_edit
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hypothesis import given, settings, assume
+from hypothesis import given, settings, assume, HealthCheck
 from hypothesis import strategies as st
 from PIL import Image
 import numpy as np
@@ -394,7 +394,7 @@ def test_margin_crop_produces_correct_output_dimensions(
     left=st.integers(min_value=0, max_value=512),
     right=st.integers(min_value=0, max_value=512),
 )
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.data_too_large])
 def test_margin_crop_minimum_dimension_invariant_positive_margins(
     image, top, bottom, left, right,
 ):

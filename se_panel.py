@@ -633,6 +633,7 @@ class SpriteEditPanel:
         self._update_output_info()
         self._update_slider_range()
         self._sync_flip_checkboxes()
+        self._sync_import_controls()
         self._update_preview()
         self._notify_preview_changed()
         if self._on_overlay_changed:
@@ -664,6 +665,24 @@ class SpriteEditPanel:
         """Called when any import-related control (margin, offset, scale, method) changes."""
         if self._suppress_params_changed:
             return
+        # Save current control values to the stored state for the active tile
+        try:
+            current_index = self._tile_index_var.get()
+        except tk.TclError:
+            current_index = 0
+        state = self._tile_imports.get(current_index)
+        if state is not None:
+            try:
+                state.margin_top = self._margin_top_var.get()
+                state.margin_bottom = self._margin_bottom_var.get()
+                state.margin_left = self._margin_left_var.get()
+                state.margin_right = self._margin_right_var.get()
+                state.offset_x = self._offset_x_var.get()
+                state.offset_y = self._offset_y_var.get()
+                state.tweak_scale = self._tweak_scale_var.get()
+                state.scaling_method = self._scaling_method_var.get()
+            except tk.TclError:
+                pass
         self._update_preview()
         self._notify_preview_changed()
 
@@ -869,8 +888,9 @@ class SpriteEditPanel:
         tile_w = params["tile_w"]
         tile_h = params["tile_h"]
 
+        total_output_tiles = out_rows * out_cols
         tiles = []
-        for idx in range(len(rects)):
+        for idx in range(total_output_tiles):
             if idx in self._tile_imports:
                 # Tile has an import — run the full processing pipeline
                 state = self._tile_imports[idx]
@@ -892,8 +912,8 @@ class SpriteEditPanel:
                 if idx in self._flip_v_set:
                     processed = processed.transpose(Image.FLIP_TOP_BOTTOM)
                 tiles.append(processed)
-            else:
-                # No import — use existing behavior: crop from source + flip
+            elif idx < len(rects):
+                # No import, within input grid — use existing behavior: crop from source + flip
                 x, y, tw, th = rects[idx]
                 tile_img = self._source_image.crop((int(x), int(y), int(x + tw), int(y + th)))
                 if idx in self._flip_h_set:
@@ -901,6 +921,9 @@ class SpriteEditPanel:
                 if idx in self._flip_v_set:
                     tile_img = tile_img.transpose(Image.FLIP_TOP_BOTTOM)
                 tiles.append(tile_img)
+            else:
+                # No import, beyond input grid — use transparent placeholder
+                tiles.append(Image.new("RGBA", (tile_w, tile_h), (0, 0, 0, 0)))
 
         return reassemble_tiles(
             tiles,
@@ -986,7 +1009,15 @@ class SpriteEditPanel:
         except tk.TclError:
             idx = 0
 
-        if idx < 0 or idx >= len(rects):
+        # Allow indices up to the output grid size (not just input grid)
+        dims = self.get_output_dims()
+        if dims is not None:
+            out_rows, out_cols = dims
+            max_idx = out_rows * out_cols - 1
+        else:
+            max_idx = len(rects) - 1
+
+        if idx < 0 or idx > max_idx:
             idx = 0
 
         # Get tile dimensions from the grid
@@ -999,20 +1030,7 @@ class SpriteEditPanel:
         # Check if the current tile has an imported image
         state = self._tile_imports.get(idx)
         if state is not None:
-            # Update stored state from current control values
-            try:
-                state.margin_top = self._margin_top_var.get()
-                state.margin_bottom = self._margin_bottom_var.get()
-                state.margin_left = self._margin_left_var.get()
-                state.margin_right = self._margin_right_var.get()
-                state.offset_x = self._offset_x_var.get()
-                state.offset_y = self._offset_y_var.get()
-                state.tweak_scale = self._tweak_scale_var.get()
-                state.scaling_method = self._scaling_method_var.get()
-            except tk.TclError:
-                pass
-
-            # Run the processing pipeline
+            # Run the processing pipeline using stored state values
             result = self._process_imported_tile(state, tile_w, tile_h)
 
             canvas_size = self._preview_size
@@ -1129,8 +1147,9 @@ class SpriteEditPanel:
         tile_w = params["tile_w"]
         tile_h = params["tile_h"]
 
+        total_output_tiles = out_rows * out_cols
         tiles = []
-        for idx in range(len(rects)):
+        for idx in range(total_output_tiles):
             if idx in self._tile_imports:
                 # Tile has an import — run the full processing pipeline
                 state = self._tile_imports[idx]
@@ -1152,8 +1171,8 @@ class SpriteEditPanel:
                 if idx in self._flip_v_set:
                     processed = processed.transpose(Image.FLIP_TOP_BOTTOM)
                 tiles.append(processed)
-            else:
-                # No import — use existing behavior: crop from source + flip
+            elif idx < len(rects):
+                # No import, within input grid — use existing behavior: crop from source + flip
                 x, y, tw, th = rects[idx]
                 tile_img = self._source_image.crop((int(x), int(y), int(x + tw), int(y + th)))
                 if idx in self._flip_h_set:
@@ -1161,6 +1180,9 @@ class SpriteEditPanel:
                 if idx in self._flip_v_set:
                     tile_img = tile_img.transpose(Image.FLIP_TOP_BOTTOM)
                 tiles.append(tile_img)
+            else:
+                # No import, beyond input grid — use transparent placeholder
+                tiles.append(Image.new("RGBA", (tile_w, tile_h), (0, 0, 0, 0)))
 
         result = reassemble_tiles(
             tiles,

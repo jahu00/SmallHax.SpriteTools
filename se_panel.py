@@ -6,10 +6,39 @@ and output rows/columns for reassembly.
 
 import math
 import tkinter as tk
-from tkinter import ttk
-from PIL import Image, ImageTk
+from dataclasses import dataclass, field
+from tkinter import filedialog, messagebox, ttk
+from typing import Optional
 
+from PIL import Image, ImageTk
+from tkinterdnd2 import DND_FILES
+
+import sprite_edit
 from sprite_edit import compute_tile_rects, crop_tile, apply_tile_flips, reassemble_tiles
+
+
+@dataclass
+class TileImportState:
+    """State for a single imported tile image and its adjustments."""
+    source_image: Image.Image       # Original imported image, never modified
+    margin_top: int = 0             # Pixels to trim (positive) or pad (negative)
+    margin_bottom: int = 0
+    margin_left: int = 0
+    margin_right: int = 0
+    offset_x: int = 0              # Horizontal shift in pixels
+    offset_y: int = 0              # Vertical shift in pixels
+    tweak_scale: int = 100         # Scale percentage (1-1000)
+    scaling_method: str = "Lanczos"  # Resampling algorithm name
+
+
+RESAMPLE_METHODS = {
+    "Nearest": Image.Resampling.NEAREST,
+    "Bilinear": Image.Resampling.BILINEAR,
+    "Bicubic": Image.Resampling.BICUBIC,
+    "Lanczos": Image.Resampling.LANCZOS,
+    "Box": Image.Resampling.BOX,
+    "Hamming": Image.Resampling.HAMMING,
+}
 
 
 class SpriteEditPanel:
@@ -46,6 +75,9 @@ class SpriteEditPanel:
         self._flip_h_set = set()
         self._flip_v_set = set()
 
+        # Per-tile import state: {tile_index: TileImportState}
+        self._tile_imports = {}
+
         # Flag to suppress recursive trace callbacks
         self._suppress_params_changed = False
 
@@ -60,6 +92,14 @@ class SpriteEditPanel:
         self._tile_h_var.trace_add("write", lambda *_: self._on_tile_size_changed())
         self._out_rows_var.trace_add("write", lambda *_: self._on_params_changed())
         self._out_cols_var.trace_add("write", lambda *_: self._on_params_changed())
+
+        # Traces for import-related controls to trigger preview updates
+        for var in (self._margin_top_var, self._margin_bottom_var,
+                    self._margin_left_var, self._margin_right_var,
+                    self._offset_x_var, self._offset_y_var,
+                    self._tweak_scale_var):
+            var.trace_add("write", lambda *_: self._on_import_control_changed())
+        self._scaling_method_var.trace_add("write", lambda *_: self._on_import_control_changed())
 
     def _build_ui(self):
         panel = self.parent_frame
@@ -166,7 +206,7 @@ class SpriteEditPanel:
         sep4 = ttk.Separator(panel, orient=tk.HORIZONTAL)
         sep4.pack(fill=tk.X, padx=8, pady=(8, 4))
 
-        tk.Label(panel, text="Tile Flip:", font=("", 10)).pack(
+        tk.Label(panel, text="Tile Edit:", font=("", 10)).pack(
             pady=(4, 2), padx=8, anchor=tk.W
         )
 
@@ -200,6 +240,104 @@ class SpriteEditPanel:
         )
         self._flip_v_check.pack(side=tk.LEFT, padx=(8, 0))
 
+        # ─── Margin/Crop Controls ───────────────────────────────────────
+        margin_label = tk.Label(panel, text="Margin/Crop:", font=("", 9))
+        margin_label.pack(pady=(6, 2), padx=8, anchor=tk.W)
+
+        margin_frame_top = tk.Frame(panel)
+        margin_frame_top.pack(fill=tk.X, padx=8, pady=1)
+
+        tk.Label(margin_frame_top, text="Top:", font=("", 8)).pack(side=tk.LEFT)
+        self._margin_top_var = tk.IntVar(value=0)
+        self._margin_top_spin = tk.Spinbox(
+            margin_frame_top, from_=-512, to=512, width=5,
+            textvariable=self._margin_top_var, state=tk.DISABLED
+        )
+        self._margin_top_spin.pack(side=tk.LEFT, padx=4)
+
+        tk.Label(margin_frame_top, text="Bottom:", font=("", 8)).pack(side=tk.LEFT, padx=(8, 0))
+        self._margin_bottom_var = tk.IntVar(value=0)
+        self._margin_bottom_spin = tk.Spinbox(
+            margin_frame_top, from_=-512, to=512, width=5,
+            textvariable=self._margin_bottom_var, state=tk.DISABLED
+        )
+        self._margin_bottom_spin.pack(side=tk.LEFT, padx=4)
+
+        margin_frame_lr = tk.Frame(panel)
+        margin_frame_lr.pack(fill=tk.X, padx=8, pady=1)
+
+        tk.Label(margin_frame_lr, text="Left:", font=("", 8)).pack(side=tk.LEFT)
+        self._margin_left_var = tk.IntVar(value=0)
+        self._margin_left_spin = tk.Spinbox(
+            margin_frame_lr, from_=-512, to=512, width=5,
+            textvariable=self._margin_left_var, state=tk.DISABLED
+        )
+        self._margin_left_spin.pack(side=tk.LEFT, padx=4)
+
+        tk.Label(margin_frame_lr, text="Right:", font=("", 8)).pack(side=tk.LEFT, padx=(8, 0))
+        self._margin_right_var = tk.IntVar(value=0)
+        self._margin_right_spin = tk.Spinbox(
+            margin_frame_lr, from_=-512, to=512, width=5,
+            textvariable=self._margin_right_var, state=tk.DISABLED
+        )
+        self._margin_right_spin.pack(side=tk.LEFT, padx=4)
+
+        # ─── Offset Controls ────────────────────────────────────────────
+        offset_label = tk.Label(panel, text="Offset:", font=("", 9))
+        offset_label.pack(pady=(6, 2), padx=8, anchor=tk.W)
+
+        offset_frame = tk.Frame(panel)
+        offset_frame.pack(fill=tk.X, padx=8, pady=1)
+
+        tk.Label(offset_frame, text="X:", font=("", 8)).pack(side=tk.LEFT)
+        self._offset_x_var = tk.IntVar(value=0)
+        self._offset_x_spin = tk.Spinbox(
+            offset_frame, from_=-9999, to=9999, width=6,
+            textvariable=self._offset_x_var, state=tk.DISABLED
+        )
+        self._offset_x_spin.pack(side=tk.LEFT, padx=4)
+
+        tk.Label(offset_frame, text="Y:", font=("", 8)).pack(side=tk.LEFT, padx=(8, 0))
+        self._offset_y_var = tk.IntVar(value=0)
+        self._offset_y_spin = tk.Spinbox(
+            offset_frame, from_=-9999, to=9999, width=6,
+            textvariable=self._offset_y_var, state=tk.DISABLED
+        )
+        self._offset_y_spin.pack(side=tk.LEFT, padx=4)
+
+        # ─── Tweak Scale Control ────────────────────────────────────────
+        tweak_frame = tk.Frame(panel)
+        tweak_frame.pack(fill=tk.X, padx=8, pady=(6, 1))
+
+        tk.Label(tweak_frame, text="Tweak Scale %:", font=("", 9)).pack(side=tk.LEFT)
+        self._tweak_scale_var = tk.IntVar(value=100)
+        self._tweak_scale_spin = tk.Spinbox(
+            tweak_frame, from_=1, to=1000, width=5,
+            textvariable=self._tweak_scale_var, state=tk.DISABLED
+        )
+        self._tweak_scale_spin.pack(side=tk.LEFT, padx=4)
+
+        # ─── Scaling Method Control ─────────────────────────────────────
+        method_frame = tk.Frame(panel)
+        method_frame.pack(fill=tk.X, padx=8, pady=(6, 1))
+
+        tk.Label(method_frame, text="Scaling Method:", font=("", 9)).pack(side=tk.LEFT)
+        self._scaling_method_var = tk.StringVar(value="Lanczos")
+        self._scaling_method_combo = ttk.Combobox(
+            method_frame, textvariable=self._scaling_method_var,
+            values=list(RESAMPLE_METHODS.keys()),
+            state="disabled", width=10
+        )
+        self._scaling_method_combo.pack(side=tk.LEFT, padx=4)
+
+        # Store references to all import-related controls for enable/disable
+        self._import_controls = [
+            self._margin_top_spin, self._margin_bottom_spin,
+            self._margin_left_spin, self._margin_right_spin,
+            self._offset_x_spin, self._offset_y_spin,
+            self._tweak_scale_spin, self._scaling_method_combo,
+        ]
+
         # ─── Tile Preview ───────────────────────────────────────────────
         sep5 = ttk.Separator(panel, orient=tk.HORIZONTAL)
         sep5.pack(fill=tk.X, padx=8, pady=(8, 4))
@@ -215,6 +353,9 @@ class SpriteEditPanel:
             bg="#3c3c3c", highlightthickness=0
         )
         self._preview_canvas.pack(padx=8, pady=4)
+        self._preview_canvas.bind("<Button-1>", self._on_canvas_click)
+        self._preview_canvas.drop_target_register(DND_FILES)
+        self._preview_canvas.dnd_bind("<<Drop>>", self._on_canvas_drop)
 
         # ─── Bottom Buttons ─────────────────────────────────────────────
         btn_frame = tk.Frame(panel)
@@ -519,6 +660,93 @@ class SpriteEditPanel:
         if self._on_overlay_changed:
             self._on_overlay_changed()
 
+    def _on_import_control_changed(self):
+        """Called when any import-related control (margin, offset, scale, method) changes."""
+        if self._suppress_params_changed:
+            return
+        self._update_preview()
+        self._notify_preview_changed()
+
+    def _on_canvas_click(self, event):
+        """Open file dialog to import an image for the current tile."""
+        filepath = filedialog.askopenfilename(
+            title="Import Tile Image",
+            filetypes=[
+                ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.tiff *.tif"),
+                ("PNG", "*.png"),
+                ("JPEG", "*.jpg *.jpeg"),
+                ("GIF", "*.gif"),
+                ("BMP", "*.bmp"),
+                ("TIFF", "*.tiff *.tif"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not filepath:
+            # User cancelled — no state change
+            return
+
+        try:
+            img = Image.open(filepath)
+            img = img.convert("RGBA")
+        except Exception:
+            messagebox.showerror("Import Error", "Could not load image file.")
+            return
+
+        try:
+            current_index = self._tile_index_var.get()
+        except tk.TclError:
+            current_index = 0
+
+        self._tile_imports[current_index] = TileImportState(source_image=img)
+        self._sync_import_controls()
+        self._update_preview()
+        self._notify_preview_changed()
+
+    def _on_canvas_drop(self, event):
+        """Handle drag-and-drop of image file onto preview canvas.
+
+        Extracts the first file path from event data (handles curly-brace-wrapped
+        paths from tkdnd and multiple paths separated by spaces).
+        On success: loads image, converts to RGBA, stores in _tile_imports.
+        On unsupported format or decode failure: silently ignores.
+        """
+        data = event.data.strip()
+        if not data:
+            return
+
+        # tkdnd wraps paths with spaces in curly braces: {path with spaces}
+        # Multiple files may be separated by spaces
+        if data.startswith("{"):
+            # Extract first brace-wrapped path
+            end_brace = data.find("}")
+            if end_brace == -1:
+                path = data[1:]
+            else:
+                path = data[1:end_brace]
+        else:
+            # No braces — take the first space-separated token
+            path = data.split()[0] if data else ""
+
+        if not path:
+            return
+
+        try:
+            img = Image.open(path)
+            img = img.convert("RGBA")
+        except Exception:
+            # Unsupported format or decode failure — silently ignore
+            return
+
+        try:
+            current_index = self._tile_index_var.get()
+        except tk.TclError:
+            current_index = 0
+
+        self._tile_imports[current_index] = TileImportState(source_image=img)
+        self._sync_import_controls()
+        self._update_preview()
+        self._notify_preview_changed()
+
     def _sync_flip_checkboxes(self):
         """Sync flip checkboxes to the currently selected tile."""
         try:
@@ -528,6 +756,77 @@ class SpriteEditPanel:
 
         self._flip_h_var.set(idx in self._flip_h_set)
         self._flip_v_var.set(idx in self._flip_v_set)
+
+    def _sync_import_controls(self):
+        """Sync import-related controls to the current tile's import state.
+
+        Enables controls if the current tile has an import, disables otherwise.
+        When enabled: Spinbox widgets get "normal" state, Combobox gets "readonly".
+        """
+        try:
+            current_index = self._tile_index_var.get()
+        except tk.TclError:
+            current_index = 0
+
+        state = self._tile_imports.get(current_index)
+        if state is not None:
+            # Enable all import controls
+            for ctrl in self._import_controls:
+                if isinstance(ctrl, ttk.Combobox):
+                    ctrl.config(state="readonly")
+                else:
+                    ctrl.config(state="normal")
+            # Sync values from stored state
+            self._suppress_params_changed = True
+            self._margin_top_var.set(state.margin_top)
+            self._margin_bottom_var.set(state.margin_bottom)
+            self._margin_left_var.set(state.margin_left)
+            self._margin_right_var.set(state.margin_right)
+            self._offset_x_var.set(state.offset_x)
+            self._offset_y_var.set(state.offset_y)
+            self._tweak_scale_var.set(state.tweak_scale)
+            self._scaling_method_var.set(state.scaling_method)
+            self._suppress_params_changed = False
+        else:
+            # Disable all import controls and reset to defaults
+            for ctrl in self._import_controls:
+                ctrl.config(state="disabled")
+            self._suppress_params_changed = True
+            self._margin_top_var.set(0)
+            self._margin_bottom_var.set(0)
+            self._margin_left_var.set(0)
+            self._margin_right_var.set(0)
+            self._offset_x_var.set(0)
+            self._offset_y_var.set(0)
+            self._tweak_scale_var.set(100)
+            self._scaling_method_var.set("Lanczos")
+            self._suppress_params_changed = False
+
+    def _process_imported_tile(self, state: TileImportState, tile_w: int, tile_h: int) -> Optional[Image.Image]:
+        """Run the full processing pipeline on an imported tile image.
+
+        Pipeline order: margin/crop → offset → tweak scale → final scale to tile size → flip.
+        Returns None if margin/crop reduces dimensions to zero.
+        """
+        result = sprite_edit.process_imported_tile(
+            state.source_image,
+            state.margin_top, state.margin_bottom,
+            state.margin_left, state.margin_right,
+            state.offset_x, state.offset_y,
+            state.tweak_scale,
+            tile_w, tile_h,
+            state.scaling_method,
+        )
+        if result is None:
+            return None
+
+        # Apply flip AFTER the pipeline (Requirement 9.2)
+        if self._flip_h_var.get():
+            result = result.transpose(Image.FLIP_LEFT_RIGHT)
+        if self._flip_v_var.get():
+            result = result.transpose(Image.FLIP_TOP_BOTTOM)
+
+        return result
 
     def _on_preview_toggled(self):
         """Handle the preview output checkbox toggle."""
@@ -547,6 +846,8 @@ class SpriteEditPanel:
     def _compute_output_image(self):
         """Compute the output image based on current settings.
 
+        For tiles with imports: uses the processed imported image with flip applied after pipeline.
+        For tiles without imports: uses existing crop + flip logic.
         Returns the reassembled image or None if parameters are invalid.
         """
         if self._source_image is None:
@@ -565,14 +866,45 @@ class SpriteEditPanel:
             return None
 
         out_rows, out_cols = dims
+        tile_w = params["tile_w"]
+        tile_h = params["tile_h"]
 
-        tiles = apply_tile_flips(
-            self._source_image, rects, self._flip_h_set, self._flip_v_set
-        )
+        tiles = []
+        for idx in range(len(rects)):
+            if idx in self._tile_imports:
+                # Tile has an import — run the full processing pipeline
+                state = self._tile_imports[idx]
+                processed = sprite_edit.process_imported_tile(
+                    state.source_image,
+                    state.margin_top, state.margin_bottom,
+                    state.margin_left, state.margin_right,
+                    state.offset_x, state.offset_y,
+                    state.tweak_scale,
+                    tile_w, tile_h,
+                    state.scaling_method,
+                )
+                if processed is None:
+                    # Margin/crop error — use transparent placeholder
+                    processed = Image.new("RGBA", (tile_w, tile_h), (0, 0, 0, 0))
+                # Apply flip AFTER pipeline (Requirement 11.2)
+                if idx in self._flip_h_set:
+                    processed = processed.transpose(Image.FLIP_LEFT_RIGHT)
+                if idx in self._flip_v_set:
+                    processed = processed.transpose(Image.FLIP_TOP_BOTTOM)
+                tiles.append(processed)
+            else:
+                # No import — use existing behavior: crop from source + flip
+                x, y, tw, th = rects[idx]
+                tile_img = self._source_image.crop((int(x), int(y), int(x + tw), int(y + th)))
+                if idx in self._flip_h_set:
+                    tile_img = tile_img.transpose(Image.FLIP_LEFT_RIGHT)
+                if idx in self._flip_v_set:
+                    tile_img = tile_img.transpose(Image.FLIP_TOP_BOTTOM)
+                tiles.append(tile_img)
 
         return reassemble_tiles(
             tiles,
-            params["tile_w"], params["tile_h"],
+            tile_w, tile_h,
             out_cols, out_rows,
             image_mode=self._source_image.mode,
         )
@@ -598,23 +930,47 @@ class SpriteEditPanel:
             self._out_info_var.set("")
 
     def _update_slider_range(self):
-        """Update the tile index slider range."""
+        """Update the tile index slider range based on output grid dimensions.
+
+        Uses get_output_dims() to compute the effective output tile count.
+        Falls back to input grid count if output dims are invalid.
+        If tile geometry is invalid (no rects), sets max to 0.
+        Clamps current index if it exceeds the new maximum.
+        """
         rects = self.get_tile_rects()
-        if rects:
-            max_idx = len(rects) - 1
-            self._tile_slider.config(to=max_idx)
-            try:
-                current = self._tile_index_var.get()
-                if current > max_idx:
-                    self._tile_index_var.set(max_idx)
-            except tk.TclError:
-                self._tile_index_var.set(0)
-        else:
+        if not rects:
+            # Invalid tile geometry — no tiles can be computed
             self._tile_slider.config(to=0)
+            self._tile_index_var.set(0)
+            return
+
+        # Compute max index from output grid dimensions
+        dims = self.get_output_dims()
+        if dims is not None:
+            out_rows, out_cols = dims
+            max_idx = out_rows * out_cols - 1
+        else:
+            # Fall back to input grid tile count
+            max_idx = len(rects) - 1
+
+        self._tile_slider.config(to=max_idx)
+
+        # Clamp current index if it exceeds new max
+        try:
+            current = self._tile_index_var.get()
+            if current > max_idx:
+                self._tile_index_var.set(max_idx)
+        except tk.TclError:
             self._tile_index_var.set(0)
 
     def _update_preview(self):
-        """Update the tile preview canvas showing the selected tile with flips applied."""
+        """Update the tile preview canvas showing the selected tile with flips applied.
+
+        If the current tile has an imported image, runs the processing pipeline
+        and displays the result. If the pipeline returns None (margin/crop error),
+        displays an error indication. If no import, uses existing behavior
+        (crop from source + flip).
+        """
         self._preview_canvas.delete("all")
         self._preview_tk_image = None
 
@@ -633,6 +989,73 @@ class SpriteEditPanel:
         if idx < 0 or idx >= len(rects):
             idx = 0
 
+        # Get tile dimensions from the grid
+        params = self.get_grid_params()
+        if params is None:
+            return
+        tile_w = params["tile_w"]
+        tile_h = params["tile_h"]
+
+        # Check if the current tile has an imported image
+        state = self._tile_imports.get(idx)
+        if state is not None:
+            # Update stored state from current control values
+            try:
+                state.margin_top = self._margin_top_var.get()
+                state.margin_bottom = self._margin_bottom_var.get()
+                state.margin_left = self._margin_left_var.get()
+                state.margin_right = self._margin_right_var.get()
+                state.offset_x = self._offset_x_var.get()
+                state.offset_y = self._offset_y_var.get()
+                state.tweak_scale = self._tweak_scale_var.get()
+                state.scaling_method = self._scaling_method_var.get()
+            except tk.TclError:
+                pass
+
+            # Run the processing pipeline
+            result = self._process_imported_tile(state, tile_w, tile_h)
+
+            canvas_size = self._preview_size
+
+            if result is None:
+                # Margin/crop error — display error indication
+                self._preview_canvas.create_text(
+                    canvas_size // 2, canvas_size // 2,
+                    text="Margin Error", fill="red",
+                    font=("", 14, "bold"), anchor=tk.CENTER
+                )
+                return
+
+            # Display the processed tile on the canvas (resize to fit 200x200)
+            img_w, img_h = result.size
+            if img_w <= 0 or img_h <= 0:
+                return
+
+            scale_x = canvas_size / img_w
+            scale_y = canvas_size / img_h
+            scale = min(scale_x, scale_y)
+
+            preview_w = max(1, int(img_w * scale))
+            preview_h = max(1, int(img_h * scale))
+
+            preview_img = result.resize((preview_w, preview_h), Image.LANCZOS)
+
+            # Handle RGBA — composite over dark background
+            if preview_img.mode == "RGBA":
+                bg = Image.new("RGB", (preview_w, preview_h), (60, 60, 60))
+                bg.paste(preview_img, mask=preview_img.split()[3])
+                preview_img = bg
+
+            self._preview_tk_image = ImageTk.PhotoImage(preview_img)
+
+            offset_x = (canvas_size - preview_w) // 2
+            offset_y = (canvas_size - preview_h) // 2
+            self._preview_canvas.create_image(
+                offset_x, offset_y, anchor=tk.NW, image=self._preview_tk_image
+            )
+            return
+
+        # No import — existing behavior: crop from source + flip
         tile_img = crop_tile(self._source_image, rects, idx)
         if tile_img is None:
             return
@@ -645,17 +1068,17 @@ class SpriteEditPanel:
 
         # Fit tile into the fixed square preview area
         canvas_size = self._preview_size
-        tile_w, tile_h = tile_img.size
+        tw, th = tile_img.size
 
-        if tile_w <= 0 or tile_h <= 0:
+        if tw <= 0 or th <= 0:
             return
 
-        scale_x = canvas_size / tile_w
-        scale_y = canvas_size / tile_h
+        scale_x = canvas_size / tw
+        scale_y = canvas_size / th
         scale = min(scale_x, scale_y)
 
-        preview_w = max(1, int(tile_w * scale))
-        preview_h = max(1, int(tile_h * scale))
+        preview_w = max(1, int(tw * scale))
+        preview_h = max(1, int(th * scale))
 
         resample = Image.NEAREST if scale >= 1.0 else Image.LANCZOS
         preview_img = tile_img.resize((preview_w, preview_h), resample)
@@ -677,7 +1100,12 @@ class SpriteEditPanel:
     # ─── Apply / Cancel ─────────────────────────────────────────────────
 
     def _apply(self):
-        """Apply flips and reassemble tiles into the output image."""
+        """Apply flips and reassemble tiles into the output image.
+
+        For tiles with imports: uses the processed imported image (pipeline already
+        includes flip via _process_imported_tile_for_index).
+        For tiles without imports: uses existing crop + flip logic.
+        """
         if self._source_image is None:
             self._cancel()
             return
@@ -698,14 +1126,45 @@ class SpriteEditPanel:
             return
 
         out_rows, out_cols = dims
+        tile_w = params["tile_w"]
+        tile_h = params["tile_h"]
 
-        tiles = apply_tile_flips(
-            self._source_image, rects, self._flip_h_set, self._flip_v_set
-        )
+        tiles = []
+        for idx in range(len(rects)):
+            if idx in self._tile_imports:
+                # Tile has an import — run the full processing pipeline
+                state = self._tile_imports[idx]
+                processed = sprite_edit.process_imported_tile(
+                    state.source_image,
+                    state.margin_top, state.margin_bottom,
+                    state.margin_left, state.margin_right,
+                    state.offset_x, state.offset_y,
+                    state.tweak_scale,
+                    tile_w, tile_h,
+                    state.scaling_method,
+                )
+                if processed is None:
+                    # Margin/crop error — use transparent placeholder
+                    processed = Image.new("RGBA", (tile_w, tile_h), (0, 0, 0, 0))
+                # Apply flip AFTER pipeline (Requirement 11.2)
+                if idx in self._flip_h_set:
+                    processed = processed.transpose(Image.FLIP_LEFT_RIGHT)
+                if idx in self._flip_v_set:
+                    processed = processed.transpose(Image.FLIP_TOP_BOTTOM)
+                tiles.append(processed)
+            else:
+                # No import — use existing behavior: crop from source + flip
+                x, y, tw, th = rects[idx]
+                tile_img = self._source_image.crop((int(x), int(y), int(x + tw), int(y + th)))
+                if idx in self._flip_h_set:
+                    tile_img = tile_img.transpose(Image.FLIP_LEFT_RIGHT)
+                if idx in self._flip_v_set:
+                    tile_img = tile_img.transpose(Image.FLIP_TOP_BOTTOM)
+                tiles.append(tile_img)
 
         result = reassemble_tiles(
             tiles,
-            params["tile_w"], params["tile_h"],
+            tile_w, tile_h,
             out_cols, out_rows,
             image_mode=self._source_image.mode,
         )

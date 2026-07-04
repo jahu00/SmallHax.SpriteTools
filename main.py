@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Simple image editor using Tkinter and Pillow."""
 
+import json
+import os
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -32,6 +34,10 @@ class ImageEditor:
     TOOL_UNIFORM_COLOR = "uniform_color"
     TOOL_GEOMETRY_CORRECT = "geometry_correct"
 
+    CONFIG_PATH = os.path.join(
+        os.path.expanduser("~"), ".config", "image-edit", "config.json"
+    )
+
     def __init__(self, root):
         self.root = root
         self.root.title("Image Editor")
@@ -41,6 +47,10 @@ class ImageEditor:
         self.original_image = None
         self.preview_image = None
         self.reference_image = None
+
+        # File state
+        self.current_path = None
+        self._config = self._load_config()
 
         # Tool state
         self.active_tool = self.TOOL_CURSOR
@@ -58,7 +68,8 @@ class ImageEditor:
 
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="Open...", accelerator="Ctrl+O", command=self.open_image)
-        file_menu.add_command(label="Save As...", accelerator="Ctrl+S", command=self.save_image)
+        file_menu.add_command(label="Save", accelerator="Ctrl+S", command=self.save_image)
+        file_menu.add_command(label="Save As...", accelerator="Ctrl+Shift+S", command=self.save_image_as)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", accelerator="Ctrl+Q", command=self.root.quit)
         menubar.add_cascade(label="File", menu=file_menu)
@@ -267,6 +278,7 @@ class ImageEditor:
     def _bind_events(self):
         self.root.bind("<Control-o>", lambda e: self.open_image())
         self.root.bind("<Control-s>", lambda e: self.save_image())
+        self.root.bind("<Control-Shift-S>", lambda e: self.save_image_as())
         self.root.bind("<Control-q>", lambda e: self.root.quit())
 
     # ─── Tool Selection ─────────────────────────────────────────────────
@@ -1060,9 +1072,35 @@ class ImageEditor:
 
     # ─── File Operations ────────────────────────────────────────────────
 
+    def _load_config(self):
+        """Load persisted settings (last open/save directories)."""
+        try:
+            with open(self.CONFIG_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+        except (OSError, ValueError):
+            pass
+        return {}
+
+    def _save_config(self):
+        """Persist settings to disk, ignoring failures."""
+        try:
+            os.makedirs(os.path.dirname(self.CONFIG_PATH), exist_ok=True)
+            with open(self.CONFIG_PATH, "w", encoding="utf-8") as f:
+                json.dump(self._config, f, indent=2)
+        except OSError:
+            pass
+
     def open_image(self):
+        if self.current_path:
+            initial_dir = os.path.dirname(self.current_path)
+        else:
+            initial_dir = self._config.get("open_dir") or os.path.expanduser("~")
+
         path = filedialog.askopenfilename(
             title="Open Image",
+            initialdir=initial_dir,
             filetypes=[
                 ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.tiff *.webp"),
                 ("All files", "*.*"),
@@ -1070,6 +1108,8 @@ class ImageEditor:
         )
         if not path:
             return
+        self._config["open_dir"] = os.path.dirname(path)
+        self._save_config()
         self._load_image(path)
 
     def _load_image(self, path):
@@ -1081,18 +1121,29 @@ class ImageEditor:
             return
 
         self.preview_image = None
+        self.current_path = path
         self.viewer.image = self.original_image
         self.viewer.fit_image()
         self.root.title(f"Image Editor — {path}")
 
     def save_image(self):
+        """Show a save dialog pointing at the currently opened file."""
         if self.original_image is None:
             messagebox.showinfo("Save", "No image to save.")
             return
 
+        if self.current_path:
+            initial_dir = os.path.dirname(self.current_path)
+            initial_file = os.path.basename(self.current_path)
+        else:
+            initial_dir = self._config.get("save_dir") or os.path.expanduser("~")
+            initial_file = ""
+
         path = filedialog.asksaveasfilename(
-            title="Save Image As",
+            title="Save Image",
             defaultextension=".png",
+            initialdir=initial_dir,
+            initialfile=initial_file,
             filetypes=[
                 ("PNG", "*.png"),
                 ("JPEG", "*.jpg *.jpeg"),
@@ -1103,10 +1154,46 @@ class ImageEditor:
         if not path:
             return
 
+        self._write_image(path)
+
+    def save_image_as(self):
+        """Show a save dialog at the last Save As location, pre-filled with the opened file name."""
+        if self.original_image is None:
+            messagebox.showinfo("Save", "No image to save.")
+            return
+
+        initial_dir = self._config.get("save_dir") or os.path.expanduser("~")
+        initial_file = (
+            os.path.basename(self.current_path) if self.current_path else ""
+        )
+
+        path = filedialog.asksaveasfilename(
+            title="Save Image As",
+            defaultextension=".png",
+            initialdir=initial_dir,
+            initialfile=initial_file,
+            filetypes=[
+                ("PNG", "*.png"),
+                ("JPEG", "*.jpg *.jpeg"),
+                ("BMP", "*.bmp"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not path:
+            return
+
+        self._config["save_dir"] = os.path.dirname(path)
+        self._save_config()
+        self._write_image(path)
+
+    def _write_image(self, path):
         try:
             self.original_image.save(path)
         except Exception as e:
             messagebox.showerror("Error", f"Could not save image:\n{e}")
+            return
+        self.current_path = path
+        self.root.title(f"Image Editor — {path}")
 
 
 def main():

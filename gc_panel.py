@@ -17,6 +17,7 @@ from geometry_correction import (
     apply_geometry_correction,
 )
 from scaling import RESAMPLE_METHODS
+from panel_utils import ReflowingList
 
 
 # Predefined background colors for empty areas
@@ -255,25 +256,8 @@ class GeometryCorrectionPanel:
             pady=(4, 2), padx=8, anchor=tk.W
         )
 
-        list_frame = tk.Frame(panel)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
-
-        self._points_canvas = tk.Canvas(list_frame, highlightthickness=0)
-        scrollbar = tk.Scrollbar(list_frame, orient=tk.VERTICAL,
-                                 command=self._points_canvas.yview)
-        self._points_inner_frame = tk.Frame(self._points_canvas)
-
-        self._points_inner_frame.bind(
-            "<Configure>",
-            lambda e: self._points_canvas.configure(
-                scrollregion=self._points_canvas.bbox("all")
-            )
-        )
-        self._points_canvas.create_window((0, 0), window=self._points_inner_frame, anchor=tk.NW)
-        self._points_canvas.configure(yscrollcommand=scrollbar.set)
-
-        self._points_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self._points_list = ReflowingList(panel)
+        self._points_list.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
 
         # ─── Preview Checkbox ───────────────────────────────────────────
         sep_prev = ttk.Separator(panel, orient=tk.HORIZONTAL)
@@ -439,12 +423,10 @@ class GeometryCorrectionPanel:
     # ─── Points List UI ─────────────────────────────────────────────────
 
     def _refresh_points_list(self):
-        for widget in self._points_inner_frame.winfo_children():
-            widget.destroy()
+        self._points_list.clear()
 
         for i, pt in enumerate(self.points):
-            frame = tk.Frame(self._points_inner_frame, bd=1, relief=tk.GROOVE)
-            frame.pack(fill=tk.X, pady=2)
+            frame = self._points_list.new_card(bd=1, relief=tk.GROOVE)
 
             # Header row
             header = tk.Frame(frame)
@@ -500,6 +482,8 @@ class GeometryCorrectionPanel:
                 text=f"Δx: {diff_x:+d}  Δy: {diff_y:+d}",
                 font=("", 8), fg="#666666"
             ).pack(side=tk.LEFT)
+
+        self._points_list.reflow()
 
     def _remove_point(self, idx):
         if 0 <= idx < len(self.points):

@@ -6,6 +6,7 @@ import threading
 import copy
 
 from outline import compute_outline
+from panel_utils import ReflowingList
 
 
 class OutlinePanel:
@@ -156,25 +157,8 @@ class OutlinePanel:
             padx=8, anchor=tk.W
         )
 
-        list_frame = tk.Frame(panel)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
-
-        self._points_canvas = tk.Canvas(list_frame, highlightthickness=0)
-        scrollbar = tk.Scrollbar(list_frame, orient=tk.VERTICAL,
-                                 command=self._points_canvas.yview)
-        self._points_inner_frame = tk.Frame(self._points_canvas)
-
-        self._points_inner_frame.bind(
-            "<Configure>",
-            lambda e: self._points_canvas.configure(
-                scrollregion=self._points_canvas.bbox("all"))
-        )
-        self._points_canvas.create_window((0, 0), window=self._points_inner_frame,
-                                          anchor=tk.NW)
-        self._points_canvas.configure(yscrollcommand=scrollbar.set)
-
-        self._points_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self._points_list = ReflowingList(panel)
+        self._points_list.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
 
         # Status label
         self._status_label = tk.Label(panel, text="", font=("", 8), fg="gray")
@@ -266,12 +250,10 @@ class OutlinePanel:
     # ─── Points List UI ─────────────────────────────────────────────────
 
     def _refresh_points_list(self):
-        for widget in self._points_inner_frame.winfo_children():
-            widget.destroy()
+        self._points_list.clear()
 
         for i, pt in enumerate(self.points):
-            frame = tk.Frame(self._points_inner_frame, bd=1, relief=tk.GROOVE)
-            frame.pack(fill=tk.X, pady=2)
+            frame = self._points_list.new_card(bd=1, relief=tk.GROOVE)
 
             header = tk.Frame(frame)
             header.pack(fill=tk.X, padx=4, pady=2)
@@ -291,6 +273,8 @@ class OutlinePanel:
                 header, text="✕", font=("", 8), bd=0,
                 command=lambda idx=i: self._remove_point(idx)
             ).pack(side=tk.RIGHT)
+
+        self._points_list.reflow()
 
     def _remove_point(self, idx):
         if 0 <= idx < len(self.points):

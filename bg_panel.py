@@ -6,6 +6,7 @@ import threading
 import copy
 
 from bg_removal import process_background_removal, process_color_correction
+from panel_utils import ReflowingList
 
 
 class BgRemovalPanel:
@@ -147,22 +148,8 @@ class BgRemovalPanel:
             padx=8, anchor=tk.W
         )
 
-        list_frame = tk.Frame(panel)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
-
-        self.points_canvas = tk.Canvas(list_frame, highlightthickness=0)
-        scrollbar = tk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.points_canvas.yview)
-        self.points_inner_frame = tk.Frame(self.points_canvas)
-
-        self.points_inner_frame.bind(
-            "<Configure>",
-            lambda e: self.points_canvas.configure(scrollregion=self.points_canvas.bbox("all"))
-        )
-        self.points_canvas.create_window((0, 0), window=self.points_inner_frame, anchor=tk.NW)
-        self.points_canvas.configure(yscrollcommand=scrollbar.set)
-
-        self.points_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self._points_list = ReflowingList(panel)
+        self._points_list.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
 
         # Status label
         self.status_label = tk.Label(panel, text="", font=("", 8), fg="gray")
@@ -281,15 +268,13 @@ class BgRemovalPanel:
     # ─── Points List UI ─────────────────────────────────────────────────
 
     def _refresh_points_list(self):
-        for widget in self.points_inner_frame.winfo_children():
-            widget.destroy()
+        self._points_list.clear()
 
         use_global_thresh = self.use_global_thresh_var.get()
         use_global_feather = self.use_global_feather_var.get()
 
         for i, pt in enumerate(self.points):
-            frame = tk.Frame(self.points_inner_frame, bd=1, relief=tk.GROOVE)
-            frame.pack(fill=tk.X, pady=2)
+            frame = self._points_list.new_card(bd=1, relief=tk.GROOVE)
 
             # Header with color swatch
             header = tk.Frame(frame)
@@ -338,6 +323,8 @@ class BgRemovalPanel:
             f_spin.pack(side=tk.LEFT, padx=2)
             if not use_global_feather:
                 f_var.trace_add("write", lambda *_, idx=i, v=f_var: self._update_feathering(idx, v))
+
+        self._points_list.reflow()
 
     def _remove_point(self, idx):
         if 0 <= idx < len(self.points):

@@ -19,6 +19,7 @@ from uc_panel import UniformColorPanel
 from gc_panel import GeometryCorrectionPanel
 from image_viewer import ImageViewer
 from tooltip import Tooltip
+from panel_utils import make_scrollable
 
 
 # ─── Main Application ──────────────────────────────────────────────────────
@@ -176,9 +177,9 @@ class ImageEditor:
         self.cc_ref_viewer.canvas.dnd_bind("<<Drop>>", self._on_ref_drop)
 
         # ─── Side panel: BG removal (hidden by default) ─────────────────
-        self.side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
+        self.side_panel = tk.Frame(self.main_frame, width=340, bd=1, relief=tk.SUNKEN)
         self.bg_panel = BgRemovalPanel(
-            self.side_panel,
+            make_scrollable(self.side_panel),
             on_preview_ready=self._on_bg_preview_ready,
             on_apply=self._on_bg_apply,
             on_cancel=self._on_bg_cancel,
@@ -186,9 +187,9 @@ class ImageEditor:
         )
 
         # ─── Side panel: Outline (hidden by default) ────────────────────
-        self.ol_side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
+        self.ol_side_panel = tk.Frame(self.main_frame, width=340, bd=1, relief=tk.SUNKEN)
         self.ol_panel = OutlinePanel(
-            self.ol_side_panel,
+            make_scrollable(self.ol_side_panel),
             on_preview_ready=self._on_ol_preview_ready,
             on_apply=self._on_ol_apply,
             on_cancel=self._on_ol_cancel,
@@ -196,9 +197,9 @@ class ImageEditor:
         )
 
         # ─── Side panel: Color correction (hidden by default) ───────────
-        self.cc_side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
+        self.cc_side_panel = tk.Frame(self.main_frame, width=340, bd=1, relief=tk.SUNKEN)
         self.cc_panel = ColorCorrectionPanel(
-            self.cc_side_panel,
+            make_scrollable(self.cc_side_panel),
             on_preview_ready=self._on_cc_preview_ready,
             on_apply=self._on_cc_apply,
             on_cancel=self._on_cc_cancel,
@@ -208,7 +209,7 @@ class ImageEditor:
         # ─── Side panel: Sprite crop (hidden by default) ────────────────
         self.crop_side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
         self.crop_panel = SpriteCropPanel(
-            self.crop_side_panel,
+            make_scrollable(self.crop_side_panel),
             on_apply=self._on_crop_apply,
             on_cancel=self._on_crop_cancel,
             on_overlay_changed=self._on_crop_overlay_changed,
@@ -217,7 +218,7 @@ class ImageEditor:
         # ─── Side panel: Sprite edit (hidden by default) ────────────────
         self.se_side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
         self.se_panel = SpriteEditPanel(
-            self.se_side_panel,
+            make_scrollable(self.se_side_panel),
             on_apply=self._on_se_apply,
             on_cancel=self._on_se_cancel,
             on_overlay_changed=self._on_se_overlay_changed,
@@ -227,7 +228,7 @@ class ImageEditor:
         # ─── Side panel: Scale (hidden by default) ──────────────────────
         self.scale_side_panel = tk.Frame(self.main_frame, width=300, bd=1, relief=tk.SUNKEN)
         self.scale_panel = ScalePanel(
-            self.scale_side_panel,
+            make_scrollable(self.scale_side_panel),
             on_preview_ready=self._on_scale_preview_ready,
             on_apply=self._on_scale_apply,
             on_cancel=self._on_scale_cancel,
@@ -235,9 +236,9 @@ class ImageEditor:
         )
 
         # ─── Side panel: Uniform color (hidden by default) ─────────────
-        self.uc_side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
+        self.uc_side_panel = tk.Frame(self.main_frame, width=340, bd=1, relief=tk.SUNKEN)
         self.uc_panel = UniformColorPanel(
-            self.uc_side_panel,
+            make_scrollable(self.uc_side_panel),
             on_preview_ready=self._on_uc_preview_ready,
             on_apply=self._on_uc_apply,
             on_cancel=self._on_uc_cancel,
@@ -245,9 +246,9 @@ class ImageEditor:
         )
 
         # ─── Side panel: Geometry correction (hidden by default) ────────
-        self.gc_side_panel = tk.Frame(self.main_frame, width=280, bd=1, relief=tk.SUNKEN)
+        self.gc_side_panel = tk.Frame(self.main_frame, width=340, bd=1, relief=tk.SUNKEN)
         self.gc_panel = GeometryCorrectionPanel(
-            self.gc_side_panel,
+            make_scrollable(self.gc_side_panel),
             on_preview_ready=self._on_gc_preview_ready,
             on_apply=self._on_gc_apply,
             on_cancel=self._on_gc_cancel,

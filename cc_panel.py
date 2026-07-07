@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image
 
 from color_correction import apply_color_correction
+from panel_utils import ReflowingList
 
 
 class ColorCorrectionPanel:
@@ -111,25 +112,8 @@ class ColorCorrectionPanel:
             pady=(4, 2), padx=8, anchor=tk.W
         )
 
-        list_frame = tk.Frame(panel)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
-
-        self._pairs_canvas = tk.Canvas(list_frame, highlightthickness=0)
-        scrollbar = tk.Scrollbar(list_frame, orient=tk.VERTICAL,
-                                 command=self._pairs_canvas.yview)
-        self._pairs_inner_frame = tk.Frame(self._pairs_canvas)
-
-        self._pairs_inner_frame.bind(
-            "<Configure>",
-            lambda e: self._pairs_canvas.configure(
-                scrollregion=self._pairs_canvas.bbox("all")
-            )
-        )
-        self._pairs_canvas.create_window((0, 0), window=self._pairs_inner_frame, anchor=tk.NW)
-        self._pairs_canvas.configure(yscrollcommand=scrollbar.set)
-
-        self._pairs_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self._pairs_list = ReflowingList(panel)
+        self._pairs_list.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
 
         # ─── Preview Checkbox ───────────────────────────────────────────
         sep2 = ttk.Separator(panel, orient=tk.HORIZONTAL)
@@ -289,12 +273,10 @@ class ColorCorrectionPanel:
     # ─── Pairs List UI ──────────────────────────────────────────────────
 
     def _refresh_pairs_list(self):
-        for widget in self._pairs_inner_frame.winfo_children():
-            widget.destroy()
+        self._pairs_list.clear()
 
         for i, pair in enumerate(self.pairs):
-            frame = tk.Frame(self._pairs_inner_frame, bd=1, relief=tk.GROOVE)
-            frame.pack(fill=tk.X, pady=2)
+            frame = self._pairs_list.new_card(bd=1, relief=tk.GROOVE)
 
             # Header row
             header = tk.Frame(frame)
@@ -361,6 +343,8 @@ class ColorCorrectionPanel:
                 text=f"Distance: {dist_normalized}",
                 font=("", 8), fg="#666666"
             ).pack(padx=4, anchor=tk.W, pady=(0, 2))
+
+        self._pairs_list.reflow()
 
     def _remove_pair(self, idx):
         if 0 <= idx < len(self.pairs):

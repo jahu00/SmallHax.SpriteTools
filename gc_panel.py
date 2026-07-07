@@ -178,22 +178,6 @@ class GeometryCorrectionPanel:
             values=["Square", "Round"], state="readonly", width=7
         ).pack(side=tk.LEFT, padx=4)
 
-        # ─── Preview Background (for viewer) ────────────────────────────
-        sep_preview_bg = ttk.Separator(panel, orient=tk.HORIZONTAL)
-        sep_preview_bg.pack(fill=tk.X, padx=8, pady=(8, 4))
-
-        preview_bg_frame = tk.Frame(panel)
-        preview_bg_frame.pack(fill=tk.X, padx=8, pady=2)
-        tk.Label(preview_bg_frame, text="Preview BG:").pack(side=tk.LEFT)
-        self._preview_bg_var = tk.StringVar(value="None")
-        self._preview_bg_dropdown = ttk.Combobox(
-            preview_bg_frame, textvariable=self._preview_bg_var,
-            values=["None", "White", "Black", "Red", "Green", "Blue", "Magenta", "Gray"],
-            state="readonly", width=10
-        )
-        self._preview_bg_dropdown.pack(side=tk.LEFT, padx=4)
-        self._preview_bg_dropdown.bind("<<ComboboxSelected>>", lambda e: self._on_preview_bg_changed())
-
         # ─── Onion Skin ─────────────────────────────────────────────────
         sep_onion = ttk.Separator(panel, orient=tk.HORIZONTAL)
         sep_onion.pack(fill=tk.X, padx=8, pady=(8, 4))
@@ -452,22 +436,6 @@ class GeometryCorrectionPanel:
             self._update_bg_swatch()
             self._on_settings_changed()
 
-    def get_preview_bg_color(self):
-        """Return the preview background color for the viewer, or None for checkerboard."""
-        name = self._preview_bg_var.get()
-        if name == "None":
-            return None
-        preview_colors = {
-            "White": (255, 255, 255),
-            "Black": (0, 0, 0),
-            "Red": (255, 0, 0),
-            "Green": (0, 255, 0),
-            "Blue": (0, 0, 255),
-            "Magenta": (255, 0, 255),
-            "Gray": (128, 128, 128),
-        }
-        return preview_colors.get(name, None)
-
     # ─── Points List UI ─────────────────────────────────────────────────
 
     def _refresh_points_list(self):
@@ -591,12 +559,6 @@ class GeometryCorrectionPanel:
             self._bg_color_override = None
         self._update_bg_swatch()
         self._schedule_preview()
-
-    def _on_preview_bg_changed(self):
-        """Called when preview background dropdown changes."""
-        # Re-render the viewer with new bg
-        if self._preview_result is not None:
-            self._on_preview_ready(self._preview_result)
 
     def _on_onion_skin_changed(self):
         """Called when onion skin checkbox or opacity slider changes."""

@@ -7,17 +7,6 @@ import copy
 
 from bg_removal import process_background_removal, process_color_correction
 
-# Predefined background colors for preview
-BG_COLORS = {
-    "White": (255, 255, 255),
-    "Black": (0, 0, 0),
-    "Red": (255, 0, 0),
-    "Green": (0, 255, 0),
-    "Blue": (0, 0, 255),
-    "Magenta": (255, 0, 255),
-    "Gray": (128, 128, 128),
-}
-
 
 class BgRemovalPanel:
     """Side panel for background removal tool with debounced preview generation."""
@@ -147,29 +136,6 @@ class BgRemovalPanel:
             command=self._on_use_global_feather_toggled
         ).pack(padx=8, anchor=tk.W)
 
-        # ─── Preview Background ─────────────────────────────────────────
-        sep = ttk.Separator(panel, orient=tk.HORIZONTAL)
-        sep.pack(fill=tk.X, padx=8, pady=(8, 4))
-
-        self.use_solid_bg_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(
-            panel, text="Solid preview background",
-            variable=self.use_solid_bg_var,
-            command=self._on_bg_option_changed
-        ).pack(padx=8, anchor=tk.W)
-
-        bg_color_frame = tk.Frame(panel)
-        bg_color_frame.pack(fill=tk.X, padx=8, pady=2)
-        tk.Label(bg_color_frame, text="Color:").pack(side=tk.LEFT)
-        self.bg_color_var = tk.StringVar(value="White")
-        self.bg_color_dropdown = ttk.Combobox(
-            bg_color_frame, textvariable=self.bg_color_var,
-            values=list(BG_COLORS.keys()), state="readonly", width=8
-        )
-        self.bg_color_dropdown.pack(side=tk.LEFT, padx=4)
-        self.bg_color_dropdown.bind("<<ComboboxSelected>>", lambda e: self._on_bg_option_changed())
-        self.bg_color_dropdown.config(state=tk.DISABLED)
-
         # ─── Points List ────────────────────────────────────────────────
         sep2 = ttk.Separator(panel, orient=tk.HORIZONTAL)
         sep2.pack(fill=tk.X, padx=8, pady=(8, 4))
@@ -263,16 +229,8 @@ class BgRemovalPanel:
         self.points = []
         self._point_colors = []
         self._preview_result = None
-        self.use_solid_bg_var.set(False)
-        self.bg_color_dropdown.config(state=tk.DISABLED)
         self._refresh_points_list()
         self._update_status("")
-
-    def get_preview_bg_color(self):
-        if self.use_solid_bg_var.get():
-            color_name = self.bg_color_var.get()
-            return BG_COLORS.get(color_name, (255, 255, 255))
-        return None
 
     def _update_status(self, text):
         self.status_label.config(text=text)
@@ -297,16 +255,6 @@ class BgRemovalPanel:
         else:
             self.cs_dropdown.config(state="readonly")
             self.distance_metric_dropdown.config(state=tk.DISABLED)
-
-    # ─── Background Option Callbacks ────────────────────────────────────
-
-    def _on_bg_option_changed(self):
-        if self.use_solid_bg_var.get():
-            self.bg_color_dropdown.config(state="readonly")
-        else:
-            self.bg_color_dropdown.config(state=tk.DISABLED)
-        if self._preview_result is not None:
-            self._on_preview_ready(self._preview_result)
 
     # ─── Global Threshold Callbacks ─────────────────────────────────────
 

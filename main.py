@@ -4,10 +4,11 @@
 import json
 import os
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from PIL import Image
 
+from preview_bg import BG_COLORS
 from bg_panel import BgRemovalPanel
 from cc_panel import ColorCorrectionPanel
 from crop_panel import SpriteCropPanel
@@ -87,8 +88,19 @@ class ImageEditor:
         self.zoom_label.pack(side=tk.RIGHT, padx=4, pady=2)
         self.zoom_label.bind("<Button-1>", lambda e: self._toggle_zoom())
 
+        # Global preview background selector (viewer only, does not affect saved image)
+        tk.Label(toolbar, text="Background:").pack(side=tk.LEFT, padx=(8, 2), pady=2)
+        self.bg_var = tk.StringVar(value="None")
+        bg_dropdown = ttk.Combobox(
+            toolbar, textvariable=self.bg_var,
+            values=["None"] + list(BG_COLORS.keys()),
+            state="readonly", width=10
+        )
+        bg_dropdown.pack(side=tk.LEFT, padx=2, pady=2)
+        bg_dropdown.bind("<<ComboboxSelected>>", lambda e: self._on_bg_changed())
+
     def _build_tool_panel(self):
-        """Build the right-side tool panel with icon-only buttons in two columns."""
+        """Build the right-side tool panel with icon-only buttons in a single column."""
         tool_panel = tk.Frame(self.root, bd=1, relief=tk.RAISED)
         tool_panel.pack(side=tk.LEFT, fill=tk.Y)
 
@@ -110,8 +122,7 @@ class ImageEditor:
             btn = tk.Button(
                 tool_panel, text=icon, relief=relief, width=3, command=command
             )
-            row, col = divmod(index, 2)
-            btn.grid(row=row, column=col, padx=2, pady=2, sticky="nsew")
+            btn.grid(row=index, column=0, padx=2, pady=2, sticky="nsew")
             Tooltip(btn, tip)
             setattr(self, attr, btn)
 
@@ -139,7 +150,9 @@ class ImageEditor:
         self.dual_viewer_frame = tk.Frame(self.main_frame)
         # Not packed by default — shown only when color correct tool is active
 
-        self.cc_source_viewer = ImageViewer(self.dual_viewer_frame)
+        self.cc_source_viewer = ImageViewer(
+            self.dual_viewer_frame, bg_color_func=self._get_bg_color
+        )
         self.cc_source_viewer.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.cc_source_viewer.set_on_zoom_changed(self._on_zoom_changed)
         self.cc_source_viewer.set_on_draw_overlay(self._draw_cc_source_overlay)
@@ -152,7 +165,9 @@ class ImageEditor:
         sep = tk.Frame(self.dual_viewer_frame, width=2, bg="#888888")
         sep.pack(side=tk.LEFT, fill=tk.Y)
 
-        self.cc_ref_viewer = ImageViewer(self.dual_viewer_frame)
+        self.cc_ref_viewer = ImageViewer(
+            self.dual_viewer_frame, bg_color_func=self._get_bg_color
+        )
         self.cc_ref_viewer.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.cc_ref_viewer.set_on_draw_overlay(self._draw_cc_ref_overlay)
 
@@ -334,7 +349,7 @@ class ImageEditor:
         self.cc_source_viewer.set_left_click_pans(False)
         self.cc_source_viewer.set_on_left_click(self._cc_source_click)
         self.cc_source_viewer.set_on_draw_overlay(self._draw_cc_source_overlay)
-        self.cc_source_viewer.set_bg_color_func(None)
+        self.cc_source_viewer.set_bg_color_func(self._get_bg_color)
         # Reference viewer: left-click picks ref point or loads image
         self.cc_ref_viewer.set_left_click_pans(False)
         self.cc_ref_viewer.set_on_left_click(self._cc_ref_click)
@@ -709,7 +724,7 @@ class ImageEditor:
         self.cc_source_viewer.set_left_click_pans(False)
         self.cc_source_viewer.set_on_left_click(self._gc_source_click)
         self.cc_source_viewer.set_on_draw_overlay(self._draw_gc_source_overlay)
-        self.cc_source_viewer.set_bg_color_func(self._get_gc_bg_color)
+        self.cc_source_viewer.set_bg_color_func(self._get_bg_color)
         # Reference viewer: left-click picks expected position or loads image
         self.cc_ref_viewer.set_left_click_pans(False)
         self.cc_ref_viewer.set_on_left_click(self._gc_ref_click)
@@ -802,10 +817,6 @@ class ImageEditor:
         self.cc_source_viewer.canvas.unbind("<ButtonPress-3>")
         self.cc_source_viewer.set_bg_color_func(None)
         self._select_cursor_tool()
-
-    def _get_gc_bg_color(self):
-        """Return the preview background color for geometry correction viewer."""
-        return self.gc_panel.get_preview_bg_color()
 
     # ─── Geometry Correction Overlays ───────────────────────────────────
 
@@ -912,10 +923,17 @@ class ImageEditor:
     # ─── Viewer Callbacks (single viewer) ───────────────────────────────
 
     def _get_bg_color(self):
-        """Return the background color for RGBA compositing, or None."""
-        if self.active_tool == self.TOOL_OUTLINE:
-            return self.ol_panel.get_preview_bg_color()
-        return self.bg_panel.get_preview_bg_color()
+        """Return the global preview background color for RGBA compositing, or None."""
+        name = self.bg_var.get()
+        if name == "None":
+            return None
+        return BG_COLORS.get(name, None)
+
+    def _on_bg_changed(self):
+        """Re-render viewers when the global preview background changes."""
+        self.viewer.render()
+        self.cc_source_viewer.render()
+        self.cc_ref_viewer.render()
 
     def _on_zoom_changed(self, zoom_level):
         """Update the zoom label when the viewer zoom changes."""

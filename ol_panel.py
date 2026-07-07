@@ -6,7 +6,6 @@ import threading
 import copy
 
 from outline import compute_outline
-from preview_bg import PreviewBgWidget
 
 
 class OutlinePanel:
@@ -138,12 +137,6 @@ class OutlinePanel:
             command=self._schedule_preview, font=("", 8)
         ).pack(padx=8, anchor=tk.W, pady=(4, 0))
 
-        # ─── Preview Background ─────────────────────────────────────────
-        sep2 = ttk.Separator(panel, orient=tk.HORIZONTAL)
-        sep2.pack(fill=tk.X, padx=8, pady=(8, 4))
-
-        self._preview_bg = PreviewBgWidget(panel, on_changed=self._on_bg_option_changed)
-
         # ─── Preview checkbox ───────────────────────────────────────────
         self._preview_var = tk.BooleanVar(value=True)
         tk.Checkbutton(
@@ -233,13 +226,8 @@ class OutlinePanel:
         self.points = []
         self._point_colors = []
         self._preview_result = None
-        self._preview_bg.reset()
         self._refresh_points_list()
         self._update_status("")
-
-    def get_preview_bg_color(self):
-        """Return the preview background color or None."""
-        return self._preview_bg.get_preview_bg_color()
 
     # ─── Color Picker ───────────────────────────────────────────────────
 
@@ -254,13 +242,6 @@ class OutlinePanel:
             self._color_swatch.delete("all")
             self._color_swatch.create_rectangle(0, 0, 20, 20, fill=hex_color, outline="")
             self._schedule_preview()
-
-    # ─── Background Option ──────────────────────────────────────────────
-
-    def _on_bg_option_changed(self):
-        """Called when preview background option changes."""
-        if self._preview_result is not None:
-            self._on_preview_ready(self._preview_result)
 
     # ─── Threshold ──────────────────────────────────────────────────────
 

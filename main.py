@@ -17,6 +17,7 @@ from scale_panel import ScalePanel
 from uc_panel import UniformColorPanel
 from gc_panel import GeometryCorrectionPanel
 from image_viewer import ImageViewer
+from tooltip import Tooltip
 
 
 # ─── Main Application ──────────────────────────────────────────────────────
@@ -58,6 +59,7 @@ class ImageEditor:
         self._build_menu()
         self._build_toolbar()
         self._build_status_bar()
+        self._build_tool_panel()
         self._build_main_area()
         self._bind_events()
 
@@ -80,61 +82,38 @@ class ImageEditor:
         toolbar = tk.Frame(self.root, bd=1, relief=tk.RAISED)
         toolbar.pack(side=tk.TOP, fill=tk.X)
 
-        self.cursor_btn = tk.Button(
-            toolbar, text="✥ Cursor", relief=tk.SUNKEN, command=self._select_cursor_tool
-        )
-        self.cursor_btn.pack(side=tk.LEFT, padx=2, pady=2)
-
-        self.bg_remove_btn = tk.Button(
-            toolbar, text="🔲 BG Remove", relief=tk.RAISED, command=self._select_bg_remove_tool
-        )
-        self.bg_remove_btn.pack(side=tk.LEFT, padx=2, pady=2)
-
-        self.outline_btn = tk.Button(
-            toolbar, text="⭕ Outline", relief=tk.RAISED, command=self._select_outline_tool
-        )
-        self.outline_btn.pack(side=tk.LEFT, padx=2, pady=2)
-
-        self.uc_btn = tk.Button(
-            toolbar, text="🎯 Uniform Color", relief=tk.RAISED,
-            command=self._select_uniform_color_tool
-        )
-        self.uc_btn.pack(side=tk.LEFT, padx=2, pady=2)
-
-        self.cc_btn = tk.Button(
-            toolbar, text="🎨 Color Correct", relief=tk.RAISED,
-            command=self._select_color_correct_tool
-        )
-        self.cc_btn.pack(side=tk.LEFT, padx=2, pady=2)
-
-        self.gc_btn = tk.Button(
-            toolbar, text="📐 Geometry", relief=tk.RAISED,
-            command=self._select_geometry_correct_tool
-        )
-        self.gc_btn.pack(side=tk.LEFT, padx=2, pady=2)
-
-        self.scale_btn = tk.Button(
-            toolbar, text="⇲ Scale", relief=tk.RAISED,
-            command=self._select_scale_tool
-        )
-        self.scale_btn.pack(side=tk.LEFT, padx=2, pady=2)
-
-        self.crop_btn = tk.Button(
-            toolbar, text="✂ Sprite Crop", relief=tk.RAISED,
-            command=self._select_sprite_crop_tool
-        )
-        self.crop_btn.pack(side=tk.LEFT, padx=2, pady=2)
-
-        self.se_btn = tk.Button(
-            toolbar, text="🔀 Sprite Edit", relief=tk.RAISED,
-            command=self._select_sprite_edit_tool
-        )
-        self.se_btn.pack(side=tk.LEFT, padx=2, pady=2)
-
         # Zoom indicator label (click to toggle 100% / fit)
         self.zoom_label = tk.Label(toolbar, text="100%", padx=8, cursor="hand2")
         self.zoom_label.pack(side=tk.RIGHT, padx=4, pady=2)
         self.zoom_label.bind("<Button-1>", lambda e: self._toggle_zoom())
+
+    def _build_tool_panel(self):
+        """Build the right-side tool panel with icon-only buttons in two columns."""
+        tool_panel = tk.Frame(self.root, bd=1, relief=tk.RAISED)
+        tool_panel.pack(side=tk.LEFT, fill=tk.Y)
+
+        # (attribute, icon, tooltip, command)
+        tools = [
+            ("cursor_btn", "✥", "Cursor", self._select_cursor_tool),
+            ("bg_remove_btn", "🔲", "BG Remove", self._select_bg_remove_tool),
+            ("outline_btn", "⭕", "Outline", self._select_outline_tool),
+            ("uc_btn", "🎯", "Uniform Color", self._select_uniform_color_tool),
+            ("cc_btn", "🎨", "Color Correct", self._select_color_correct_tool),
+            ("gc_btn", "📐", "Geometry", self._select_geometry_correct_tool),
+            ("scale_btn", "⇲", "Scale", self._select_scale_tool),
+            ("crop_btn", "✂", "Sprite Crop", self._select_sprite_crop_tool),
+            ("se_btn", "🔀", "Sprite Edit", self._select_sprite_edit_tool),
+        ]
+
+        for index, (attr, icon, tip, command) in enumerate(tools):
+            relief = tk.SUNKEN if attr == "cursor_btn" else tk.RAISED
+            btn = tk.Button(
+                tool_panel, text=icon, relief=relief, width=3, command=command
+            )
+            row, col = divmod(index, 2)
+            btn.grid(row=row, column=col, padx=2, pady=2, sticky="nsew")
+            Tooltip(btn, tip)
+            setattr(self, attr, btn)
 
     def _build_main_area(self):
         self.main_frame = tk.Frame(self.root)

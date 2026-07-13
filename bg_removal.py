@@ -336,8 +336,10 @@ def process_background_removal(image, points, alpha_threshold, color_space,
     if not points:
         return image.convert("RGBA")
 
-    rgb_image = image.convert("RGB")
-    rgb_array = np.array(rgb_image)  # (H, W, 3) uint8
+    # Preserve any existing alpha channel from the source image.
+    rgba_image = image.convert("RGBA")
+    existing_alpha = np.array(rgba_image)[..., 3]  # (H, W) uint8
+    rgb_array = np.array(rgba_image)[..., :3]  # (H, W, 3) uint8
     height, width = rgb_array.shape[:2]
 
     # Build combined mask from all points
@@ -408,7 +410,7 @@ def process_background_removal(image, points, alpha_threshold, color_space,
     # Build result RGBA array
     result = np.zeros((height, width, 4), dtype=np.uint8)
     result[..., :3] = rgb_array
-    result[..., 3] = 255  # Default fully opaque
+    result[..., 3] = existing_alpha  # Preserve existing transparency
 
     # Fully transparent pixels
     mask_indices = np.where(combined_mask)
@@ -440,6 +442,10 @@ def process_background_removal(image, points, alpha_threshold, color_space,
 
         # Alpha = inverted lightness
         alpha = ((1.0 - lightness) * 255).astype(np.uint8)
+
+        # Don't make already-transparent pixels more opaque than they were.
+        partial_existing_alpha = existing_alpha[partial_indices[0], partial_indices[1]]
+        alpha = np.minimum(alpha, partial_existing_alpha)
 
         # Set lightness to 0 and convert back
         cs_values[:, 0, 2] = 0
@@ -537,13 +543,16 @@ def process_color_correction(image, points, alpha_threshold, distance_metric="RG
     if not points:
         return image.convert("RGBA")
 
-    rgb_image = image.convert("RGB")
-    rgb_array = np.array(rgb_image).astype(np.float64)  # (H, W, 3) float64
+    # Preserve any existing alpha channel from the source image.
+    rgba_image = image.convert("RGBA")
+    rgba_array = np.array(rgba_image)
+    existing_alpha = rgba_array[..., 3].astype(np.float64)  # (H, W) float64
+    rgb_array = rgba_array[..., :3].astype(np.float64)  # (H, W, 3) float64
     height, width = rgb_array.shape[:2]
 
-    # Start with fully opaque result
+    # Start from the existing alpha (preserving prior transparency)
     result_rgb = rgb_array.copy()
-    result_alpha = np.full((height, width), 255.0, dtype=np.float64)
+    result_alpha = existing_alpha.copy()
 
     # Process each point's mask independently
     for pt in points:
